@@ -87,6 +87,12 @@ def handler(signum, frame):
     if res.lower() == 'y':
         exit(1)
 
+def getUser(user_id, c):
+    res = c.execute(f"SELECT * FROM Users WHERE ID = '{user_id}'")
+    results = res.fetchone()
+    selected_user = dict(zip(USER_KEYS, results))
+    return selected_user
+
 # User buys a card
 # Deduct card 
 def buyCard(data):
@@ -99,12 +105,12 @@ def listCardsForOwner(data):
     pass
 
 def listBalanceForOwner(data, c):
-    token = data.pop(0)
-    if not token.isnumeric():
-        return FORMAT + "\nBalance requires a user to be specified"
-    res = c.execute(f"SELECT * FROM Users WHERE ID = '{token}'")
-    results = res.fetchall()
-    user = dict(zip(USER_KEYS, results))
+    id = data.pop(0)
+    if not id.isnumeric():
+        return FORMAT + '\nBalance requires a user to be specified'
+    user = getUser(id, c)
+    if not user:
+        return INVALID + f'\nNo user {id} exists'
     pass
 
 def tokenizer(data, con, c):
