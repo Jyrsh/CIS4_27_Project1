@@ -88,10 +88,38 @@ def handler(signum, frame):
         exit(1)
 
 def getUser(user_id, c):
+    selected_user = None
+
     res = c.execute(f"SELECT * FROM Users WHERE ID = '{user_id}'")
     results = res.fetchone()
-    selected_user = dict(zip(USER_KEYS, results))
+    if results:
+        selected_user = dict(list(zip(USER_KEYS, results)))
     return selected_user
+
+def getCard(user_id, c):
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{user_id}'")
+    results = res.fetchone()
+    if results:
+        selected_card = dict(zip(CARD_KEYS, results))
+    return selected_card
+
+def updateOwner(user, card):
+    pass
+
+def deductFunds(user, funds):
+    pass
+
+def addFunds(user, funds):
+    pass
+
+def notInteger(data):
+    pass
+
+def notString(data):
+    pass
+
+def notDouble(data):
+    pass
 
 # User buys a card
 # Deduct card 
@@ -101,29 +129,38 @@ def buyCard(data):
 def sellCard(data):
     pass
 
-def listCardsForOwner(data):
+def listCardsForOwner(data, C):
     pass
 
 def listBalanceForOwner(data, c):
+    # No additional arguments
+    if len(data) == 0:
+        message = FORMAT + "\nBalance requires a user to be specified"
+        return message
     id = data.pop(0)
+    # If next argument is not an integer
     if not id.isnumeric():
-        return FORMAT + '\nBalance requires a user to be specified'
+        message = FORMAT + "\nBalance requires a user to be specified"
+        return message
     user = getUser(id, c)
+    # getUser() returns an empty dict
     if not user:
-        return INVALID + f'\nNo user {id} exists'
-    pass
+        message = FORMAT + f"\nNo user {id} exists"
+        return message
+    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']}"
+    return message
 
 def tokenizer(data, con, c):
     tokens = data.split()
     token = tokens.pop(0)
         
-    if token.upper() == 'BUY':
+    if token.upper() == "BUY":
         return buyCard(tokens, con, c)
-    elif token.upper() == 'SELL':
+    elif token.upper() == "SELL":
         return sellCard(tokens, con, c)
-    elif token.upper() == 'LIST':
+    elif token.upper() == "LIST":
         return listCardsForOwner(tokens, c)
-    elif token.upper() == 'BALANCE':
+    elif token.upper() == "BALANCE":
         return listBalanceForOwner(tokens, c)
     else:
         return INVALID
@@ -136,14 +173,22 @@ def main():
     createTables(con, c)
 
     # Test insert query
-    testInsert(con, c)
+    #testInsert(con, c)
 
     # Test select query
-    testSelect(c)
+    #testSelect(c)
 
     # Tied to Ctrl-C handler, run before connection loop
     signal.signal(signal.SIGINT, handler)
-
+    
+    # Testing without client enviornment needed
+    data = ["balance 3", "balance 0", "balance 5" "balance e", "balance"]
+    for item in data:
+        print(f"###############\nReceived: {item}\n")
+        message = tokenizer(item, con, c)
+        print(f"To send to user:\n{message}\n###############\n")
+    return
+    
     # Looped socket connection
     # Where I put what I need to happen with data entered
     while True:
@@ -153,32 +198,42 @@ def main():
             s.listen()
             conn, addr = s.accept()
             with conn:
-                print(f'Connected by {addr}')
+                print(f"Connected by {addr}")
                 while True:
                     data = conn.recv(1024).decode()                # Data received from client
-                    print(f'Received: {data}\n')
+                    print(f"Received: {data}\n")
 
                     # Client wishes to log off
-                    if data == 'QUIT':
-                        conn.sendall(bytes(OK, encoding='ASCII'))
+                    if data == "QUIT":
+                        conn.sendall(bytes(OK, encoding="ASCII"))
                         break
                     # No data received, client is not connected, wait for new client
                     elif not data:
                         break
                     # Client wishes to shutdown server
-                    elif data == 'SHUTDOWN':                       
-                        conn.sendall(bytes(OK, encoding='ASCII'))
+                    elif data == "SHUTDOWN":                       
+                        conn.sendall(bytes(OK, encoding="ASCII"))
                         print('SERVER SHUTDOWN INITIATED BY USER...')
                         break
                     
-                    message = tokenizer(data, con, c)
+                    message = tokenizer(data, con, c)              # Process message received if not "SHUTDOWN" or "QUIT"
 
-                    conn.sendall(bytes(message, encoding='ASCII'))
-                if data == 'SHUTDOWN':                             # Only triggered via SHUTDOWN command, otherwise loop for new connections
+                    conn.sendall(bytes(message, encoding="ASCII"))
+                if data == "SHUTDOWN":                             # Only triggered via SHUTDOWN command, otherwise loop for new connections
                     break
 
-if __name__ == '__main__':
+                # take loop and put it in function and then let it be handler for cmd line data locally
+
+if __name__ == "__main__":
     main()
+
+# Test Data
+"""
+data = ["SHUTDOWN"]
+data = ["QUIT"]
+data = ["balance 3", "balance 0", "balance 5" "balance e", "balance"] # Testing balance
+data = []
+"""
 
 # Misc functions
 """
