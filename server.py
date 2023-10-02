@@ -12,7 +12,7 @@ PORT = 65432
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
 CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
 
-#Error codes
+# Error codes
 OK = '200 OK'
 INVALID = '400 invalid command'
 FORMAT = '403 message format order'
@@ -61,13 +61,13 @@ def testInsert(con, c):
             ('Charizard', 'Fire', 'Rare'),
             ('Jiggglypuff', 'Normal', 'Common'),
             ('Bulbasaur', 'Grass', 'Common');""")
-    con.commit() # Commit changes to DB
+    con.commit() # Commit changes to db
 
 # Test select query
 def testSelect(c):
     res = c.execute("SELECT * FROM Users;")
     results = res.fetchall()
-    # If no results tell so
+    # No results? Tell so
     if not results:
         print('nothing found')
     for item in results: # Print query result, results in list form
@@ -76,7 +76,7 @@ def testSelect(c):
 
     res = c.execute("SELECT * FROM Pokemon_cards")
     results = res.fetchall()
-    # If no results tell so
+    # No results? Tell so
     if not results:
         print('nothing found')
     for item in results: # Print query result, results in list form
@@ -94,9 +94,9 @@ def getUser(user_id, c):
 
     res = c.execute(f"SELECT * FROM Users WHERE ID = '{user_id}'") # db query for selected user
     result = res.fetchone()                                        # Tuple for result
-    # If result of query is no an empty tuple
+    # Result of query is no an empty tuple
     if result:
-        selected_user = dict(zip(USER_KEYS, result))              # Zip associated user fields to results in a dict for easier formatting of return message later on
+        selected_user = dict(zip(USER_KEYS, result))               # Zip associated user fields to results in a dict for easier formatting of return message later on
     return selected_user
 
 def getCard(user_id, c):
