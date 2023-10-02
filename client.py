@@ -9,17 +9,17 @@ def main():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
-        while message != 'SHUTDOWN' and message != 'QUIT':
+        while message != "SHUTDOWN" and message != "QUIT":
             message = input("c: ")
-            s.sendall(bytes(message, encoding='ASCII'))
+            s.sendall(bytes(message, encoding="ASCII"))
             #print(f'\nc: {message}')
-            data = s.recv(1024).decode('ASCII')
-            print(f's: {data}\n')
+            data = s.recv(1024).decode("ASCII")
+            print(f"s: {data}\n")
 
-    if message == 'SHUTDOWN':
+    if message == "SHUTDOWN":
         print(message)
     else:
         print(OK)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -5,7 +5,7 @@ import signal
 # GLOBAL VARIABLES
 ########################
 # Host and Port info
-HOST = '127.0.0.1'
+HOST = "127.0.0.1"
 PORT = 65432
 
 # For zipping select results to reference in messages relayed to client
@@ -13,9 +13,9 @@ USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 
 CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
 
 # Error codes
-OK = '200 OK'
-INVALID = '400 invalid command'
-FORMAT = '403 message format order'
+OK = "200 OK"
+INVALID = "400 invalid command"
+FORMAT = "403 message format order"
 ########################
 
 # Create tables
@@ -69,7 +69,7 @@ def testSelect(c):
     results = res.fetchall()
     # No results? Tell so
     if not results:
-        print('nothing found')
+        print("nothing found")
     for item in results: # Print query result, results in list form
         print(item)
     print()
@@ -78,14 +78,14 @@ def testSelect(c):
     results = res.fetchall()
     # No results? Tell so
     if not results:
-        print('nothing found')
+        print("nothing found")
     for item in results: # Print query result, results in list form
         print(item)
     print()
 
 # Ctrl-C handler for graceful interrupt exit
 def keyboardInterruptHandler(signum, frame):
-    res = input('\nCtrl-c was pressed. Do you really want to exit? y/n ')
+    res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
     if res.lower() == 'y':
         exit(1)
 
@@ -94,19 +94,20 @@ def getUser(user_id, c):
 
     res = c.execute(f"SELECT * FROM Users WHERE ID = '{user_id}'") # db query for selected user
     result = res.fetchone()                                        # Tuple for result
-    # Result of query is no an empty tuple
+    # Result of query is not an empty tuple
     if result:
-        selected_user = dict(zip(USER_KEYS, result))               # Zip associated user fields to results in a dict for easier formatting of return message later on
+        selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
     return selected_user
 
-def getCard(user_id, c):
-    selected_cards = None
+def getCards(user_id, c):
+    selected_cards = []
 
     res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{user_id}'") # db query for selected card
     results = res.fetchall()                                                     # Tuples of results
+    # Result of query is not an empty tuple
     if results:
         for item in results:
-            selected_cards = dict(zip(CARD_KEYS, item))                          # Zip associated card fields to results in a duct for easier formatting of return message later on
+            selected_cards += dict(zip(CARD_KEYS, item))                         # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
     return selected_cards
 
 def updateOwner(user, card):
@@ -177,10 +178,10 @@ def main():
     # Create Tables
     createTables(con, c)
 
-    # Test insert query
+    # Test insert query, only need to run this to regen database if deleted locally.
     #testInsert(con, c)
 
-    # Test select query
+    # Test select query, just some fun with the select query to ensure it and insert worked properly
     #testSelect(c)
 
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
