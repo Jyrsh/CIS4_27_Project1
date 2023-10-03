@@ -16,6 +16,10 @@ CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
 OK = "200 OK"
 INVALID = "400 invalid command"
 FORMAT = "403 message format order"
+NOT_FOUND = "404 no record found"
+
+# Pokemon name length
+LONGEST_POKEMON_NAME = len("Crabominable")
 ########################
 
 # Create tables
@@ -56,11 +60,11 @@ def testInsert(con, c):
     con.commit() # Commit changes to db
     
     # Test insert query
-    c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity) VALUES
-            ('Pikachu', 'Electric', 'Common'),
-            ('Charizard', 'Fire', 'Rare'),
-            ('Jiggglypuff', 'Normal', 'Common'),
-            ('Bulbasaur', 'Grass', 'Common');""")
+    c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
+            ('Pikachu', 'Electric', 'Common', 3, 1),
+            ('Charizard', 'Fire', 'Rare', 2, 1),
+            ('Jiggglypuff', 'Normal', 'Common', 1, 2),
+            ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
     con.commit() # Commit changes to db
 
 # Test select query
@@ -99,15 +103,15 @@ def getUser(user_id, c):
         selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
     return selected_user
 
-def getCards(user_id, c):
+def getCards(owner_id, c):
     selected_cards = []
 
-    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{user_id}'") # db query for selected card
-    results = res.fetchall()                                                     # Tuples of results
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{owner_id}'") # db query for selected card
+    results = res.fetchall()                                                      # Tuples of results
     # Result of query is not an empty tuple
     if results:
         for item in results:
-            selected_cards += dict(zip(CARD_KEYS, item))                         # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
+            selected_cards.append(item)                                           # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
     return selected_cards
 
 def updateOwner(user, card):
@@ -128,28 +132,65 @@ def sellCard(data):
     pass
 
 # List cards by owner
-def listCardsForOwner(data, C):
-    pass
+def listCardsForOwner(owner_id, c):
+    cards = getCards(owner_id, c)
+    if not cards:
+        message = NOT_FOUND + f"\nNo cards owned by {owner_id}, user may not exist"                                                   # Error 404, selected user does not exist
+        return message
+    message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_id}:\n"
+    for item in CARD_KEYS:
+        message += f"{item.ljust(LONGEST_POKEMON_NAME,' ')}"
+    message += '\n'
+    for card in cards: 
+        for field in card:
+            message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+        message += '\n'
+    return message
+
+def listC(data, c):
+    # If there is no argument
+    if len(data) == 0:
+        message = FORMAT + "\nLIST requires a user to be specified" # Error 403, no user argument received
+        return message
+    id = data.pop(0)                                                # Store next argument
+    # If next argument is not an integer
+    if not id.isnumeric():
+        message = FORMAT + "\nLIST requires integer for lookup"     # Error 403, need number for lookup
+        return message
+    # If there is more than one argument
+    if data:
+        message = FORMAT + "\nLIST only takes one argument"         # Error 403, more than one argument
+        return message
+    message = listCardsForOwner(id, c)                              # Hand off to message builder
+    return message
 
 # Summary: Takes parameters following "BALANCE" and returns an appropriate reponse for both errors and legitimate requests
 # Pre-conditions : "BALANCE" was the first token determined
 # Post-conditions: Error message or success message both w/ appropriate details returned to user
-def listBalanceForOwner(data, c):
-    # No additional arguments
+def listBalanceForOwner(user_id, c):
+    user = getUser(user_id, c)                                                                                # Find correlated user, returns empty dict if non-existent
+    # getUser() returns an empty dict
+    if not user:
+        message = NOT_FOUND + f"\nNo user {user_id} exists"                                                   # Error 404, selected user does not exist
+        return message
+    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
+    return message
+
+def balance(data, c):
+    # If there is no argument
     if len(data) == 0:
         message = FORMAT + "\nBALANCE requires a user to be specified" # Error 403, no user argument received
         return message
-    id = data.pop(0)                                                   # Get the next argument
+    id = data.pop(0)                                                   # Store next argument
     # If next argument is not an integer
     if not id.isnumeric():
         message = FORMAT + "\nBALANCE requires integer for lookup"     # Error 403, need number for lookup
         return message
-    user = getUser(id, c) # Find correlated user, returns None if non-existent
-    # getUser() returns an empty dict
-    if not user:
-        message = FORMAT + f"\nNo user {id} exists"                    # Error 403, selected user does not exist
+    # If there is more than one argument
+    if data:
+        message = FORMAT + "\nBALANCE only takes one argument"         # Error 403, more than one argument
         return message
-    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
+    message = listBalanceForOwner(id, c)                               # Hand off to message builder
     return message
 
 # Summary: Splits user-entered messages into tokens by a delimiter ' ', checks for valid commands of the server, pushes remaining arguments into appropriate
@@ -165,9 +206,9 @@ def tokenizer(data, con, c):
     elif token.upper() == "SELL":
         return sellCard(tokens, con, c)
     elif token.upper() == "LIST":
-        return listCardsForOwner(tokens, c)
+        return listC(tokens, c)
     elif token.upper() == "BALANCE":
-        return listBalanceForOwner(tokens, c)
+        return balance(tokens, c)
     else:
         return INVALID
 
@@ -189,7 +230,7 @@ def main():
     
     ###############
     # Testing without socket environment needed, will be removed later
-    data = ["balance 3", "balance 0", "balance 5", "balance e", "balance"]
+    data = ["list 1", "list 2", "list 0", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST 5", "LIST e", "LIST", "LIST 2 3"]
     for item in data:
         print(f"###############\nReceived: {item}\n")
         message = tokenizer(item, con, c)
@@ -236,13 +277,13 @@ if __name__ == "__main__":
 
 # Test Data
 """
-data = ["SHUTDOWN"]                                                    # Testing SHUTDOWN - DONE
+data = ["SHUTDOWN"]                                                                                                                                                 # Testing SHUTDOWN - DONE
 
-data = ["QUIT"]                                                        # Testing QUIT - DONE
+data = ["QUIT"]                                                                                                                                                     # Testing QUIT - DONE
 
-data = ["balance 3", "balance 0", "balance 5", "balance e", "balance"] # Testing BALANCE - DONE
+data = ["balance 3", "balance 0", "balance 5", "balance e", "balance", "balance 3 4", "BALANCE 3", "BALANCE 0", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
 
-data = [] # Testing LIST
+data = ["list 1", "list 2", "list 0", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST 5", "LIST e", "LIST", "LIST 2 3"]                 # Testing LIST - DONE
 
 data = [] # Testing BUY
 
