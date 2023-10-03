@@ -133,20 +133,14 @@ def is_float(string):
         return True
     except:
         return False
-    
 
 def updateUser(user, con, c):
     c.execute(f"UPDATE Users SET 'usd_balance' = {user['usd_balance']} WHERE id = {user['id']};")
     con.commit()    
 
 def updateCard(card, con, c):
-    pass
-
-def deductFunds(user, funds):
-    pass
-
-def addFunds(user, funds):
-    pass
+    c.execute(f"UPDATE Pokemon_cards SET 'count' = {card['count']} WHERE id = {card['id']};")
+    con.commit()
 
 def buyCard(data):
     pass
@@ -168,8 +162,11 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
     if card['count'] == 0:
         # remove card
         pass
+    
     updateUser(user, con, c)
-    updateCard(card)
+    updateCard(card, con, c)
+    testSelect(c)
+
     return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']}"
 
 # User sells a card
