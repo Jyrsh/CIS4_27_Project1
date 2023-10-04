@@ -23,8 +23,9 @@ LONGEST_POKEMON_NAME = len("Crabominable") + 1 # Longest pokemon name at project
 LIST_ARG_LEN = 1
 BALANCE_ARG_LEN = 1
 SELL_ARG_LEN = 4
-BUY_ARG_LEN = 5
+BUY_ARG_LEN = 6
 ########################
+
 
 # Create tables
 def createTables(con, c):
@@ -67,9 +68,10 @@ def testInsert(con, c):
     c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
             ('Pikachu', 'Electric', 'Common', 2, 1),
             ('Charizard', 'Fire', 'Rare', 2, 1),
-            ('Jiggglypuff', 'Normal', 'Common', 1, 2),
+            ('Jigglypuff', 'Normal', 'Common', 1, 2),
             ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
     con.commit() # Commit changes to db
+    
 
 # Test select query
 def testSelect(c):
@@ -107,6 +109,20 @@ def isFloat(string):
     except:
         return False
 
+def insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c):
+    c.execute(f"INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES ('{c_name}', '{c_rarity}', '{c_type}', {c_quantity}, {c_owner});")
+    con.commit()
+
+def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
+    selected_card = {}
+
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE (card_name, rarity, owner_id) = ('{c_name}', '{c_rarity}', '{c_owner}');")
+    result = res.fetchone()
+    if result:
+        selected_card = dict(zip(CARD_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
+
+    return selected_card
+
 def updateUserBalance(user, con, c):
     c.execute(f"UPDATE Users SET usd_balance = {user['usd_balance']:.2f} WHERE id = {user['id']};")
     con.commit()
@@ -117,15 +133,16 @@ def updateCardCount(card, con, c):
 
 def deleteCard(card, c_owner, con, c):
     c.execute(f"DELETE FROM Pokemon_cards WHERE (card_name, owner_id) = ('{card['card_name']}', {c_owner});")
-    con.commit() 
+    con.commit()
 
-def getCardByOwnerAndName(owner_id, c_name, c):
+def getCardByOwnerName(owner_id, c_name, c):
     selected_card = {}
 
     res = c.execute(f"SELECT * FROM Pokemon_cards WHERE (card_name, owner_id) = ('{c_name}', {owner_id});")
     result = res.fetchone()
     if result:
         selected_card = dict(zip(CARD_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
+
     return selected_card
 
 def getCardByOwner(owner_id, c):
@@ -137,6 +154,7 @@ def getCardByOwner(owner_id, c):
     if results:
         for item in results:
             selected_cards.append(item)                                           # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
+
     return selected_cards
 
 def numberOfArgs(data, arg_len):
@@ -146,16 +164,18 @@ def numberOfArgs(data, arg_len):
     elif len(data) > arg_len:
         message = FORMAT + "\nToo many args"
         return message
+    
     return None
 
 def getUser(user_id, c):
     selected_user = None
 
     res = c.execute(f"SELECT * FROM Users WHERE id = {user_id};") # db query for selected user
-    result = res.fetchone()                                        # Tuple for result
+    result = res.fetchone()                                       # Tuple for result
     # Result of query is not an empty tuple
     if result:
-        selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
+        selected_user = dict(zip(USER_KEYS, result))              # Map associated user fields to results in a dict for easier formatting of return message later on
+
     return selected_user
 
 ########################
@@ -188,6 +208,7 @@ def balance(data, c):
         message = FORMAT + "\nBALANCE requires non-zero, positive integer for user"
         return message
     message = balanceForOwner(id, c)                                                # Hand off to message builder
+
     return message
 
 ########################
@@ -233,7 +254,7 @@ def listC(data, c):
 ########################
 def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
     user = getUser(c_owner, c)
-    card = getCardByOwnerAndName(c_owner, c_name, c)
+    card = getCardByOwnerName(c_owner, c_name, c)
 
     if not user:
         message = NOT_FOUND + f"\nNo user {c_owner}"
@@ -241,11 +262,9 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
     if not card:
         message = NOT_FOUND + f"\nNo Pokemon '{c_name}' owned by user {c_owner}"
         return message
-
     if int(c_quantity) > card['count']:
         message = INVALID + "\nSELL quantity more than card count"
         return message
-    
     user['usd_balance'] += int(c_quantity)*float(c_price)
     card['count'] -= int(c_quantity)
     if card['count'] == 0:
@@ -256,7 +275,7 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
 
     return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']:.2f}"
 
-# User sells a card
+# Sell command parser
 def sell(data, con, c):
     message = numberOfArgs(data, SELL_ARG_LEN)
 
@@ -287,12 +306,55 @@ def sell(data, con, c):
 
 # BUY FUNCTIONS
 ########################
-def buyCard(data):
-    pass
+def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
+    user = getUser(c_owner, c)
+    card = getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c)
+
+    if not user:
+        message = NOT_FOUND + f"\nNo user {c_owner}"
+        return message
+    user['usd_balance'] -= int(c_quantity) * float(c_price)
+    if user['usd_balance'] < 0:
+        message = INVALID + f"\nUser {c_owner} does not have enough funds to purchase {c_quantity} {c_name}s"
+        return message
+    if card:
+        card['count'] += int(c_quantity)
+        updateCardCount(card, con, c)
+    else:
+        insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c)
+    updateUserBalance(user, con, c)
+
+    return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User USD balance ${user['usd_balance']:.2f}"
+
+
 
 # User buys a card
-def buy(data):
-    pass
+def buy(data, con, c):
+    message = numberOfArgs(data, BUY_ARG_LEN)
+
+    if message:
+        return message
+    c_name = data.pop(0)
+    c_type = data.pop(0)
+    c_rarity = data.pop(0)
+    c_price = data.pop(0)
+    if not isFloat(c_price):
+        message = FORMAT + "\nBUY requires a float for price"
+        return message
+    elif float(c_price) < 0:
+        message = INVALID + "\nBUY requires a positive float for price"
+        return message
+    c_quantity = data.pop(0)
+    if not c_quantity.isnumeric() or int(c_quantity) < 1:
+        message = FORMAT + "\nBUY requires positive, non-zero integer for quantity"
+        return message
+    c_owner = data.pop(0)
+    if not c_owner.isnumeric() or int(c_owner) < 1:
+        message = FORMAT + "\nBUY requires positive, non-zero integer for user"
+        return message
+    message = buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c)
+
+    return message
 ########################
 
 # Summary: Splits user-entered messages into tokens by a delimiter ' ', checks for valid commands of the server, pushes remaining arguments into appropriate
@@ -305,7 +367,7 @@ def tokenizer(data, con, c):
         message = INVALID + "\nNo valid command received"
         return message
     firstToken = tokens.pop(0)
-        
+    
     if firstToken.upper() == "BUY":
         return buy(tokens, con, c)
     elif firstToken.upper() == "SELL":
@@ -324,24 +386,13 @@ def main():
     # Create Tables
     createTables(con, c)
 
-    # Test insert query, only need to run this to regen database if deleted locally.
-    #testInsert(con, c)
-
-    # Test select query, just some fun with the select query to ensure it and insert worked properly
-    #testSelect(c)
-
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
-    
+
     ###############
     # Testing without socket environment needed, will be removed later
-    data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1",
-        "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
-        "SELL Pikachu 2 34.99 1", "SELL Pikachu 3 34.99 1", "SELL Pikachu e 34.99 1", "SELL Pikachu 0 34.99 1", "SELL Pikachu -1 34.99 1",
-        "SELL Pikachu 1 b 1", "SELL Pikachu 1 0 1", "SELL Pikachu 1 -1 1",
-        "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e", 
-        "SELL", "SELL 1 2 3 4 5"]
-    
+    data = ["BUY Pikachu Electric Common 19.99 2 1"]
+
     for item in data:
         print("###############")
         testInsert(con, c)
@@ -392,29 +443,27 @@ def main():
                 if data == "SHUTDOWN":                             # Only triggered via SHUTDOWN command, otherwise loop for new connections
                     break
 
-                # take loop and put it in function and then let it be handler for cmd line data locally
-
 if __name__ == "__main__":
     main()
 
 # Test Data
 """
-data = ["SHUTDOWN"]                                                                                                                                                 # Testing SHUTDOWN - DONE
+data = ["SHUTDOWN"]                                                                                                                                                       # Testing SHUTDOWN - DONE
 
-data = ["QUIT"]                                                                                                                                                     # Testing QUIT - DONE
+data = ["QUIT"]                                                                                                                                                           # Testing QUIT - DONE
 
 data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
 
-data = ["list 1", "list 2", "list 0", "list -1", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"]                 # Testing LIST - DONE
+data = ["list 1", "list 2", "list 0", "list -1", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"] # Testing LIST - DONE
 
 data = [] # Testing BUY
 
-data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1",
+data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1", "SELL Jigglypuff 1 35.00 2",
         "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
         "SELL Pikachu 2 34.99 1", "SELL Pikachu 3 34.99 1", "SELL Pikachu e 34.99 1", "SELL Pikachu 0 34.99 1", "SELL Pikachu -1 34.99 1",
         "SELL Pikachu 1 b 1", "SELL Pikachu 1 0 1", "SELL Pikachu 1 -1 1",
         "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e",
-        "SELL", "SELL 1 2 3 4 5"]
-                                                                                                                       
-        # Testing SELL
+        "SELL", "SELL 1 2 3 4 5"]                                                                                                                                         # Testing SELL - DONE
+
+data = ["BUY Pikachu Electric Common 19.99 2 1"]
 """
