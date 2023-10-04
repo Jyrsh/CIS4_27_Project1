@@ -56,19 +56,34 @@ def createTables(con, c):
 
 # Test insert query
 def testInsert(con, c):
+#    c.execute("""INSERT INTO Users (first_name, last_name, user_name, password, email, usd_balance) VALUES
+#              ('John', 'Doe', 'j_doe', 'Passwrd4', 'j.doe@gmail.com', 80.00),
+#              ('Jane', 'Smith', 'j_smith', 'pass456', 'j.smith@abc.com', 10.00),
+#              ('Charlie', 'Brown', 'c_brown', 'Snoopy', 'c.brown@abc.com', 90.00),
+#              ('Lucy', 'Van', 'l_van', 'Football', 'l.van@abc.com', 70.00),
+#              ('Linus', 'Blanket', 'l_blanket', 'security23', 'l.blanket@abc.com', 90.00);""")
+#    con.commit() #commit changes to db
+
     c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, usd_balance) VALUES
             ('jhwisnie@umich.edu', 'Jacob', 'Wisniewski', 1, 100.00),
             ('jsmith@hotmail.com', 'John', 'Smith', 2, 100.00),
             ('jdoe@gmail.com', 'Jane', 'Doe', 3, 100.00),
             ('njspence@umich.edu', 'Nick', 'Spencer', 4, 100.00);""")
     con.commit() # Commit changes to db
-    
+ 
     # Test insert query
     c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
             ('Pikachu', 'Electric', 'Common', 2, 1),
+<<<<<<< HEAD
             ('Charizard', 'Fire', 'Rare', 2, 1),
             ('Jiggglypuff', 'Normal', 'Common', 1, 2),
             ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
+=======
+            ('Charizard', 'Fire', 'Rare', 1, 1),
+            ('Bulbasaur', 'Grass', 'Common', 50, 3),
+            ('Squirtle', 'Water', 'Uncommon', 30, 4),  
+            ('Jiggglypuff', 'Normal', 'Common', 3, 5);""")
+>>>>>>> fe08c79ca18ada99bde0535cc9ca71e32bfc50ae
     con.commit() # Commit changes to db
 
 # Test select query
@@ -158,8 +173,43 @@ def getUser(user_id, c):
         selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
     return selected_user
 
+<<<<<<< HEAD
 ########################
 
+=======
+def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
+    pass
+
+# User buys a card
+def buy(data, con, c):
+    if len(data) < BUY_ARG_LEN:
+        message = FORMAT + "\nNot enough BUY args"
+        return message
+    elif len(data) > BUY_ARG_LEN:
+        message = FORMAT + "\nToo many SELL args"
+        return message
+    
+    c_name = data.pop(0)
+    c_type = data.pop(0)
+    c_rarity = data.pop(0)
+    
+    c_price = data.pop(0)
+    if not is_float(c_price):
+        message = FORMAT + "\BUY price is not a double"
+        return message
+
+    c_quantity = data.pop(0)
+    if not c_quantity.isnumeric():
+        message = FORMAT + "\BUY quantity is not an integer"
+        return message
+    
+    c_owner = data.pop(0)
+    if not c_owner.isnumeric():
+        message = FORMAT + "\BUY owner is not an integer"
+        return message
+    
+    message = buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c)
+>>>>>>> fe08c79ca18ada99bde0535cc9ca71e32bfc50ae
 
 # BALANCE FUNCTIONS
 ########################
