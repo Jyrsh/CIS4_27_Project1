@@ -65,7 +65,7 @@ def testInsert(con, c):
     
     # Test insert query
     c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
-            ('Pikachu', 'Electric', 'Common', 3, 1),
+            ('Pikachu', 'Electric', 'Common', 2, 1),
             ('Charizard', 'Fire', 'Rare', 2, 1),
             ('Jiggglypuff', 'Normal', 'Common', 1, 2),
             ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
@@ -91,26 +91,38 @@ def testSelect(c):
         print(item)
     print()
 
+# HELPER FUNCTIONS
+########################
+
 # Ctrl-C handler for graceful interrupt exit
 def keyboardInterruptHandler(signum, frame):
     res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
     if res.lower() == 'y':
         exit(1)
 
-def getUser(user_id, c):
-    selected_user = None
+def isFloat(string):
+    try:
+        float(string)
+        return True
+    except:
+        return False
 
-    res = c.execute(f"SELECT * FROM Users WHERE ID = '{user_id}'") # db query for selected user
-    result = res.fetchone()                                        # Tuple for result
-    # Result of query is not an empty tuple
-    if result:
-        selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
-    return selected_user
+def updateUserBalance(user, con, c):
+    c.execute(f"UPDATE Users SET usd_balance = {user['usd_balance']:.2f} WHERE id = {user['id']};")
+    con.commit()
+
+def updateCardCount(card, con, c):
+    c.execute(f"UPDATE Pokemon_cards SET count = {card['count']} WHERE id = {card['id']};")
+    con.commit()
+
+def deleteCard(card, c_owner, con, c):
+    c.execute(f"DELETE FROM Pokemon_cards WHERE (card_name, owner_id) = ('{card['card_name']}', {c_owner});")
+    con.commit() 
 
 def getCardByOwnerAndName(owner_id, c_name, c):
     selected_card = {}
 
-    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{owner_id}' AND card_name = '{c_name}'")
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE (card_name, owner_id) = ('{c_name}', {owner_id});")
     result = res.fetchone()
     if result:
         selected_card = dict(zip(CARD_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
@@ -119,7 +131,7 @@ def getCardByOwnerAndName(owner_id, c_name, c):
 def getCardByOwner(owner_id, c):
     selected_cards = []
 
-    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = '{owner_id}'") # db query for selected card
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {owner_id};") # db query for selected card
     results = res.fetchall()                                                      # Tuples of results
     # Result of query is not an empty tuple
     if results:
@@ -127,85 +139,68 @@ def getCardByOwner(owner_id, c):
             selected_cards.append(item)                                           # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
     return selected_cards
 
-def is_float(string):
-    try:
-        float(string)
-        return True
-    except:
-        return False
-
-def updateUser(user, con, c):
-    c.execute(f"UPDATE Users SET 'usd_balance' = {user['usd_balance']} WHERE id = {user['id']};")
-    con.commit()    
-
-def updateCard(card, con, c):
-    c.execute(f"UPDATE Pokemon_cards SET 'count' = {card['count']} WHERE id = {card['id']};")
-    con.commit()
-
-def buyCard(data):
-    pass
-
-# User buys a card
-def buy(data):
-    pass
-
-def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
-    user = getUser(c_owner, c)
-    card = getCardByOwnerAndName(c_owner, c_name, c)
-
-    if int(c_quantity) > card['count']:
-        message = INVALID + "\nCard quantity too low"
+def numberOfArgs(data, arg_len):
+    if len(data) < arg_len:
+        message = FORMAT + "\nNot enough args"
         return message
-    
-    user['usd_balance'] += float(c_price)
-    card['count'] -= int(c_quantity)
-    if card['count'] == 0:
-        # remove card
-        pass
-    
-    updateUser(user, con, c)
-    updateCard(card, con, c)
-    testSelect(c)
+    elif len(data) > arg_len:
+        message = FORMAT + "\nToo many args"
+        return message
+    return None
 
-    return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']}"
+def getUser(user_id, c):
+    selected_user = None
 
-# User sells a card
-def sell(data, con, c):
-    if len(data) < SELL_ARG_LEN:
-        message = FORMAT + "\nNot enough SELL args"
-        return message
-    elif len(data) > SELL_ARG_LEN:
-        message = FORMAT + "\nToo many SELL args"
-        return message
-    
-    c_name = data.pop(0)
-    c_quantity = data.pop(0)
-    if not c_quantity.isnumeric():
-        message = FORMAT + "\nSELL quantity is not an integer"
-        return message
-    
-    c_price = data.pop(0)
-    if not is_float(c_price):
-        message = FORMAT + "\nSELL price is not a double"
-        return message
-    
-    c_owner = data.pop(0)
-    if not c_owner.isnumeric():
-        message = FORMAT + "\nSELL owner is not an integer"
-        return message
+    res = c.execute(f"SELECT * FROM Users WHERE id = {user_id};") # db query for selected user
+    result = res.fetchone()                                        # Tuple for result
+    # Result of query is not an empty tuple
+    if result:
+        selected_user = dict(zip(USER_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
+    return selected_user
 
-    message = sellCard(c_name, c_quantity, c_price, c_owner, con, c)
+########################
+
+
+# BALANCE FUNCTIONS
+########################
+
+# Summary: Takes parameters following "BALANCE" and returns an appropriate reponse for both errors and legitimate requests
+# Pre-conditions : "BALANCE" was the first token determined
+# Post-conditions: Error message or success message both w/ appropriate details returned to user
+def balanceForOwner(user_id, c):
+    user = getUser(user_id, c)                                                                                # Find correlated user, returns empty dict if non-existent
+    # getUser() returns an empty dict
+    if not user:
+        message = NOT_FOUND + f"\nNo user {user_id} exists"                                                   # Error 404, selected user does not exist
+        return message
+    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
 
     return message
 
-# List cards by owner
+def balance(data, c):
+    message = numberOfArgs(data, BALANCE_ARG_LEN)
+    if message:
+        return message
+    
+    id = data.pop(0)                                                                # Store next argument
+    # If next argument is not an integer
+    if not id.isnumeric() or int(id) < 1:
+        message = FORMAT + "\nBALANCE requires non-zero, positive integer for user"
+        return message
+    message = balanceForOwner(id, c)                                                # Hand off to message builder
+    return message
+
+########################
+
+
+# LIST FUNCTIONS
+########################
 def listCardsForOwner(owner_id, c):
     cards = getCardByOwner(owner_id, c)
 
     if not cards:
         message = NOT_FOUND + f"\nNo cards owned by {owner_id}, user may not exist"                         # Error 404, selected user does not exist
         return message
-    
     message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_id}:\n"
     for item in CARD_KEYS:
         message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
@@ -218,53 +213,87 @@ def listCardsForOwner(owner_id, c):
     return message
 
 def listC(data, c):
-    # If there is no argument
-    if len(data) == 0:
-        message = FORMAT + "\nLIST requires a user to be specified" # Error 403, no user argument received
+    message = numberOfArgs(data, LIST_ARG_LEN)
+
+    if message:
         return message
-    id = data.pop(0)                                                # Store next argument
+    id = data.pop(0)                                            # Store next argument
     # If next argument is not an integer
-    if not id.isnumeric():
-        message = FORMAT + "\nLIST requires integer for lookup"     # Error 403, need number for lookup
+    if not id.isnumeric() or int(id) < 1:
+        message = FORMAT + "\nLIST requires non-zero, positive integer for user"
         return message
-    # If there is more than one argument
-    if data:
-        message = FORMAT + "\nLIST only takes one argument"         # Error 403, more than one argument
-        return message
-    message = listCardsForOwner(id, c)                              # Hand off to message builder
+    message = listCardsForOwner(id, c)                          # Hand off to message builder
+
     return message
 
-# Summary: Takes parameters following "BALANCE" and returns an appropriate reponse for both errors and legitimate requests
-# Pre-conditions : "BALANCE" was the first token determined
-# Post-conditions: Error message or success message both w/ appropriate details returned to user
-def balanceForOwner(user_id, c):
-    user = getUser(user_id, c)                                                                                # Find correlated user, returns empty dict if non-existent
-    # getUser() returns an empty dict
+########################
+
+
+# SELL FUNCTIONS
+########################
+def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
+    user = getUser(c_owner, c)
+    card = getCardByOwnerAndName(c_owner, c_name, c)
+
     if not user:
-        message = NOT_FOUND + f"\nNo user {user_id} exists"                                                   # Error 404, selected user does not exist
+        message = NOT_FOUND + f"\nNo user {c_owner}"
+        return message
+    if not card:
+        message = NOT_FOUND + f"\nNo Pokemon '{c_name}' owned by user {c_owner}"
+        return message
+
+    if int(c_quantity) > card['count']:
+        message = INVALID + "\nSELL quantity more than card count"
         return message
     
-    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
+    user['usd_balance'] += int(c_quantity)*float(c_price)
+    card['count'] -= int(c_quantity)
+    if card['count'] == 0:
+        deleteCard(card, c_owner, con, c)
+    else:
+        updateCardCount(card, con, c)
+    updateUserBalance(user, con, c)
+
+    return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']:.2f}"
+
+# User sells a card
+def sell(data, con, c):
+    message = numberOfArgs(data, SELL_ARG_LEN)
+
+    if message:
+        return message
+    c_name = data.pop(0)
+    c_quantity = data.pop(0)
+    if not c_quantity.isnumeric() or int(c_quantity) < 1:
+        message = FORMAT + "\nSELL requires positive, non-zero integer for quantity"
+        return message
+    c_price = data.pop(0)
+    if not isFloat(c_price):
+        message = FORMAT + "\nSELL requires a float for price"
+        return message
+    elif float(c_price) < 0:
+        message = INVALID + "\nSELL requires a positive float for price"
+        return message
+    c_owner = data.pop(0)
+    if not c_owner.isnumeric() or int(c_owner) < 1:
+        message = FORMAT + "\nSELL requires positive, non-zero integer for user"
+        return message
+    message = sellCard(c_name, c_quantity, c_price, c_owner, con, c)
+
     return message
 
-def balance(data, c):
-    # If there is no argument
-    if len(data) == 0:
-        message = FORMAT + "\nBALANCE requires a user to be specified" # Error 403, no user argument received
-        return message
-    
-    id = data.pop(0)                                                   # Store next argument
-    # If next argument is not an integer
-    if not id.isnumeric():
-        message = FORMAT + "\nBALANCE requires integer for lookup"     # Error 403, need number for lookup
-        return message
-    # If there is more than one argument
-    if data:
-        message = FORMAT + "\nBALANCE only takes one argument"         # Error 403, more than one argument
-        return message
-    
-    message = balanceForOwner(id, c)                                   # Hand off to message builder
-    return message
+########################
+
+
+# BUY FUNCTIONS
+########################
+def buyCard(data):
+    pass
+
+# User buys a card
+def buy(data):
+    pass
+########################
 
 # Summary: Splits user-entered messages into tokens by a delimiter ' ', checks for valid commands of the server, pushes remaining arguments into appropriate
 #          functions w/ db related APIs.  Returns a message relayed back from the related functions (valid or error), or an error for an INVALID command
@@ -272,18 +301,21 @@ def balance(data, c):
 # Post-conditions: Appropriate response from related functions or an error for invalid command
 def tokenizer(data, con, c):
     tokens = data.split()
-    token = tokens.pop(0)
+    if not tokens:
+        message = INVALID + "\nNo valid command received"
+        return message
+    firstToken = tokens.pop(0)
         
-    if token.upper() == "BUY":
-        return buyCard(tokens, con, c)
-    elif token.upper() == "SELL":
+    if firstToken.upper() == "BUY":
+        return buy(tokens, con, c)
+    elif firstToken.upper() == "SELL":
         return sell(tokens, con, c)
-    elif token.upper() == "LIST":
+    elif firstToken.upper() == "LIST":
         return listC(tokens, c)
-    elif token.upper() == "BALANCE":
+    elif firstToken.upper() == "BALANCE":
         return balance(tokens, c)
     else:
-        return INVALID
+        return INVALID + "\nNo valid command received"
 
 def main():
     con = sqlite3.connect('database.db') # Open/create and connect to database
@@ -303,11 +335,28 @@ def main():
     
     ###############
     # Testing without socket environment needed, will be removed later
-    data = ["SELL Pikachu 1 34.99 1"]
+    data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1",
+        "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
+        "SELL Pikachu 2 34.99 1", "SELL Pikachu 3 34.99 1", "SELL Pikachu e 34.99 1", "SELL Pikachu 0 34.99 1", "SELL Pikachu -1 34.99 1",
+        "SELL Pikachu 1 b 1", "SELL Pikachu 1 0 1", "SELL Pikachu 1 -1 1",
+        "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e", 
+        "SELL", "SELL 1 2 3 4 5"]
+    
     for item in data:
-        print(f"###############\nReceived: {item}\n")
+        print("###############")
+        testInsert(con, c)
+        testSelect(c)
+
+        print(f"Received: {item}\n")
         message = tokenizer(item, con, c)
-        print(f"To send to user:\n{message}\n###############\n")
+        print(f"To send to user:\n{message}\n")
+
+        testSelect(c)
+        print("###############\n")
+        c.execute("DELETE FROM Pokemon_cards;")
+        c.execute("DELETE FROM Users;")
+        con.commit()
+
     return
     ###############
 
@@ -354,11 +403,18 @@ data = ["SHUTDOWN"]                                                             
 
 data = ["QUIT"]                                                                                                                                                     # Testing QUIT - DONE
 
-data = ["balance 3", "balance 0", "balance 5", "balance e", "balance", "balance 3 4", "BALANCE 3", "BALANCE 0", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
+data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
 
-data = ["list 1", "list 2", "list 0", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST 5", "LIST e", "LIST", "LIST 2 3"]                 # Testing LIST - DONE
+data = ["list 1", "list 2", "list 0", "list -1", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"]                 # Testing LIST - DONE
 
 data = [] # Testing BUY
 
-data = ["SELL Pikachu 1 34.99 1"] # Testing SELL
+data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1",
+        "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
+        "SELL Pikachu 2 34.99 1", "SELL Pikachu 3 34.99 1", "SELL Pikachu e 34.99 1", "SELL Pikachu 0 34.99 1", "SELL Pikachu -1 34.99 1",
+        "SELL Pikachu 1 b 1", "SELL Pikachu 1 0 1", "SELL Pikachu 1 -1 1",
+        "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e",
+        "SELL", "SELL 1 2 3 4 5"]
+                                                                                                                       
+        # Testing SELL
 """
