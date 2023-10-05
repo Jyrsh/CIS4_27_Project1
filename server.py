@@ -187,41 +187,49 @@ def getUser(user_id, c):
 # Summary: Takes parameters following "BALANCE" and returns an appropriate reponse for both errors and legitimate requests
 # Pre-conditions : "BALANCE" was the first token determined
 # Post-conditions: Error message or success message both w/ appropriate details returned to user
+#Process Balance command
 def balanceForOwner(user_id, c):
-    user = getUser(user_id, c)                                                                                # Find correlated user, returns empty dict if non-existent
-    # getUser() returns an empty dict
-    if not user:
+    #Get User Information
+    user = getUser(user_id, c)
+    if not user:    #Return if no user was found in the database
         message = NOT_FOUND + f"\nNo user {user_id} exists"                                                   # Error 404, selected user does not exist
         return message
+    
+    #Create and return message
     message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
-
     return message
 
+#Validate BALANCE command args
 def balance(data, c):
-    message = numberOfArgs(data, BALANCE_ARG_LEN)
-    if message:
+    message = numberOfArgs(data, BALANCE_ARG_LEN) #Check if command has correct number of args
+    if message:                                   #Return if too many or too few args
         return message
     
-    id = data.pop(0)                                                                # Store next argument
-    # If next argument is not an integer
-    if not id.isnumeric() or int(id) < 1:
+    #Validate Owner ID Arg
+    id = data.pop(0)                      # Store next argument
+    if not id.isnumeric() or int(id) < 1: #Return if owner id is non-int or non-positive
         message = FORMAT + "\nBALANCE requires non-zero, positive integer for user"
         return message
-    message = balanceForOwner(id, c)                                                # Hand off to message builder
+    
+    #Run BALANCE command
+    message = balanceForOwner(id, c)   # Hand off to message builder
 
     return message
-
 ########################
 
 
 # LIST FUNCTIONS
 ########################
+#Process LIST command
 def listCardsForOwner(owner_id, c):
+    #Get User's Cards
     cards = getCardByOwner(owner_id, c)
 
-    if not cards:
+    if not cards:   #Return if user owns no cards or the ID is not in the database
         message = NOT_FOUND + f"\nNo cards owned by {owner_id}, user may not exist"                         # Error 404, selected user does not exist
         return message
+    
+    #Print list of cards
     message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_id}:\n"
     for item in CARD_KEYS:
         message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
@@ -233,127 +241,150 @@ def listCardsForOwner(owner_id, c):
 
     return message
 
+#Validate LIST command args
 def listC(data, c):
-    message = numberOfArgs(data, LIST_ARG_LEN)
-
-    if message:
+    message = numberOfArgs(data, LIST_ARG_LEN) #Check if command has correct number of args
+    if message:                                #Return if too many or too few args
         return message
-    id = data.pop(0)                                            # Store next argument
-    # If next argument is not an integer
-    if not id.isnumeric() or int(id) < 1:
+    
+    #Validate Owner ID Arg
+    id = data.pop(0)                      #Store next argument
+    if not id.isnumeric() or int(id) < 1: #Return if owner id is non-int or non-positive
         message = FORMAT + "\nLIST requires non-zero, positive integer for user"
         return message
+    
+    #Run LIST Command
     message = listCardsForOwner(id, c)                          # Hand off to message builder
-
     return message
-
 ########################
 
 
 # SELL FUNCTIONS
 ########################
+#Process SELL command
 def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
+    #Get User and User's Card Information
     user = getUser(c_owner, c)
     card = getCardByOwnerName(c_owner, c_name, c)
 
-    if not user:
+    if not user:                        #Return if user id was not in list
         message = NOT_FOUND + f"\nNo user {c_owner}"
         return message
-    if not card:
+    if not card:                        #Return if user does not own any of the card
         message = NOT_FOUND + f"\nNo Pokemon '{c_name}' owned by user {c_owner}"
         return message
-    if int(c_quantity) > card['count']:
+    if int(c_quantity) > card['count']: #Return if the quantity is more than the card count in database
         message = INVALID + "\nSELL quantity more than card count"
         return message
+    
+    #Adds balance to the user, subtracts card quantity
     user['usd_balance'] += int(c_quantity)*float(c_price)
     card['count'] -= int(c_quantity)
-    if card['count'] == 0:
+
+    if card['count'] == 0: #If card count is zero, remove the card from the database
         deleteCard(card, c_owner, con, c)
-    else:
+    else:                  #Else, update the value in the database
         updateCardCount(card, con, c)
     updateUserBalance(user, con, c)
 
     return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']:.2f}"
 
-# Sell command parser
+#Validate SELL command args
 def sell(data, con, c):
-    message = numberOfArgs(data, SELL_ARG_LEN)
-
-    if message:
+    message = numberOfArgs(data, SELL_ARG_LEN) #Check if command has correct number of args
+    if message:                                #Return if too many or too few args
         return message
+    
+    #Split command args
     c_name = data.pop(0)
+    
+    #Validate Quantity Arg
     c_quantity = data.pop(0)
-    if not c_quantity.isnumeric() or int(c_quantity) < 1:
+    if not c_quantity.isnumeric() or int(c_quantity) < 1: #Return if quantity is non-int or non-positive
         message = FORMAT + "\nSELL requires positive, non-zero integer for quantity"
         return message
+    
+    #Validate Price Arg
     c_price = data.pop(0)
-    if not isFloat(c_price):
+    if not isFloat(c_price): #Return if price is non-float type
         message = FORMAT + "\nSELL requires a float for price"
         return message
-    elif float(c_price) < 0:
+    elif float(c_price) < 0: #Return if price is non-positive
         message = INVALID + "\nSELL requires a positive float for price"
         return message
+    
+    #Validate Owner ID Arg
     c_owner = data.pop(0)
-    if not c_owner.isnumeric() or int(c_owner) < 1:
+    if not c_owner.isnumeric() or int(c_owner) < 1: #Return if owner id is non-int or non-positive
         message = FORMAT + "\nSELL requires positive, non-zero integer for user"
         return message
+    
+    #Run SELL command
     message = sellCard(c_name, c_quantity, c_price, c_owner, con, c)
-
     return message
-
 ########################
 
 
 # BUY FUNCTIONS
 ########################
+#Proccess BUY command
 def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
+    #Get User and User's Card Information
     user = getUser(c_owner, c)
     card = getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c)
 
-    if not user:
+    if not user:                #Return if user id was not in list
         message = NOT_FOUND + f"\nNo user {c_owner}"
         return message
+    
     user['usd_balance'] -= int(c_quantity) * float(c_price)
-    if user['usd_balance'] < 0:
+    if user['usd_balance'] < 0: #Return if selected user does not have enough funds
         message = INVALID + f"\nUser {c_owner} does not have enough funds to purchase {c_quantity} {c_name}s"
         return message
-    if card:
+    
+    if card:                    #If the card is already in the card database, increase count
         card['count'] += int(c_quantity)
         updateCardCount(card, con, c)
-    else:
+    else:                       #Else, add it to the card database
         insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c)
-    updateUserBalance(user, con, c)
+    updateUserBalance(user, con, c) #Update user database
 
     return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User USD balance ${user['usd_balance']:.2f}"
 
-
-
-# User buys a card
+#Validate BUY command args
 def buy(data, con, c):
-    message = numberOfArgs(data, BUY_ARG_LEN)
-
-    if message:
+    message = numberOfArgs(data, BUY_ARG_LEN) #Check if command has correct number of args
+    if message:                               #Return if too many or too few args
         return message
+    
+    #Split command args
     c_name = data.pop(0)
     c_type = data.pop(0)
     c_rarity = data.pop(0)
+    
+    #Validate Price Arg
     c_price = data.pop(0)
-    if not isFloat(c_price):
+    if not isFloat(c_price): #Return if price is non-float type
         message = FORMAT + "\nBUY requires a float for price"
         return message
-    elif float(c_price) < 0:
+    elif float(c_price) < 0: #Return if price is non-positive
         message = INVALID + "\nBUY requires a positive float for price"
         return message
+    
+    #Validate Quantity Arg
     c_quantity = data.pop(0)
-    if not c_quantity.isnumeric() or int(c_quantity) < 1:
+    if not c_quantity.isnumeric() or int(c_quantity) < 1: #Return if quantity is non-int or non-positive
         message = FORMAT + "\nBUY requires positive, non-zero integer for quantity"
         return message
+    
+    #Validate Owner ID Arg
     c_owner = data.pop(0)
-    if not c_owner.isnumeric() or int(c_owner) < 1:
+    if not c_owner.isnumeric() or int(c_owner) < 1: #Return if owner id is non-int or non-positive
         message = FORMAT + "\nBUY requires positive, non-zero integer for user"
         return message
+    
+    #Run BUY command
     message = buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c)
-
     return message
 ########################
 
@@ -362,12 +393,13 @@ def buy(data, con, c):
 # Pre-conditions : Message entered into the server by a user
 # Post-conditions: Appropriate response from related functions or an error for invalid command
 def tokenizer(data, con, c):
-    tokens = data.split()
-    if not tokens:
+    tokens = data.split() # Split Input Into Strings
+    if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
         return message
     firstToken = tokens.pop(0)
     
+    # Function Selection
     if firstToken.upper() == "BUY":
         return buy(tokens, con, c)
     elif firstToken.upper() == "SELL":
