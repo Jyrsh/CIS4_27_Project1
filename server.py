@@ -3,6 +3,7 @@ import sqlite3
 import signal
 from math import isinf
 
+########################
 # GLOBAL VARIABLES
 ########################
 # Host and Port info
@@ -74,7 +75,6 @@ def testInsert(con, c):
             ('Jigglypuff', 'Normal', 'Common', 1, 2),
             ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
     con.commit() # Commit changes to db
-    
 
 # Test select query
 def testSelect(c):
@@ -96,9 +96,20 @@ def testSelect(c):
         print(item)
     print()
 
+########################
 # HELPER FUNCTIONS
 ########################
 
+<<<<<<< HEAD
+=======
+# Ctrl-C handler for graceful interrupt exit
+def keyboardInterruptHandler(signum, frame):
+    res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
+    if res.lower() == 'y':
+        exit(1)
+
+#Check If Arg is Float
+>>>>>>> da8d9b20b5f2b213cc633ab314c0a6904d3b84c7
 def isFloat(string):
     try:
         float(string)
@@ -106,10 +117,12 @@ def isFloat(string):
     except:
         return False
 
+#Insert Card Into Database
 def insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c):
     c.execute(f"INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES ('{c_name}', '{c_type}', '{c_rarity}', {c_quantity}, {c_owner});")
     con.commit()
 
+#Return Card Information Based On Owner, Name, and Rarity
 def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
     selected_card = {}
 
@@ -120,18 +133,22 @@ def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
 
     return selected_card
 
+#Update User's Balance
 def updateUserBalance(user, con, c):
     c.execute(f"UPDATE Users SET usd_balance = {user['usd_balance']:.2f} WHERE id = {user['id']};")
     con.commit()
 
+#Update Card's Count Value
 def updateCardCount(card, con, c):
     c.execute(f"UPDATE Pokemon_cards SET count = {card['count']} WHERE id = {card['id']};")
     con.commit()
 
+#Remove Card From Database
 def deleteCard(card, c_owner, con, c):
     c.execute(f"DELETE FROM Pokemon_cards WHERE (card_name, owner_id) = ('{card['card_name']}', {c_owner});")
     con.commit()
 
+#Return Card Information Based On Owner and Card Name
 def getCardByOwnerName(owner_id, c_name, c):
     selected_card = {}
 
@@ -142,6 +159,7 @@ def getCardByOwnerName(owner_id, c_name, c):
 
     return selected_card
 
+#Return Card List Information Based On Owner
 def getCardByOwner(owner_id, c):
     selected_cards = []
 
@@ -154,6 +172,7 @@ def getCardByOwner(owner_id, c):
 
     return selected_cards
 
+#Validate Number of Arguments Based On Command Args Length
 def numberOfArgs(data, arg_len):
     if len(data) < arg_len:
         message = FORMAT + "\nNot enough args"
@@ -164,6 +183,7 @@ def numberOfArgs(data, arg_len):
     
     return None
 
+#Check Database For User
 def getUser(user_id, c):
     selected_user = None
 
@@ -174,10 +194,9 @@ def getUser(user_id, c):
         selected_user = dict(zip(USER_KEYS, result))              # Map associated user fields to results in a dict for easier formatting of return message later on
 
     return selected_user
-
 ########################
 
-
+########################
 # BALANCE FUNCTIONS
 ########################
 
@@ -214,7 +233,7 @@ def balance(data, c):
     return message
 ########################
 
-
+########################
 # LIST FUNCTIONS
 ########################
 #Process LIST command
@@ -255,7 +274,7 @@ def listC(data, c):
     return message
 ########################
 
-
+########################
 # SELL FUNCTIONS
 ########################
 #Process SELL command
@@ -328,7 +347,7 @@ def sell(data, con, c):
     return message
 ########################
 
-
+########################
 # BUY FUNCTIONS
 ########################
 #Proccess BUY command
