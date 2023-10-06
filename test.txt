@@ -4,11 +4,12 @@ data = ["SHUTDOWN"]                                                             
 
 data = ["QUIT"]                                                                                                                                                           # Testing QUIT - DONE
 
-data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
+data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"]                                                          # Testing BALANCE - DONE
 
-data = ["LIST 1", "list 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"] # Testing LIST - DONE
+data = ["LIST 1", "list 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"]                                                                        # Testing LIST - DONE
 
-data = [] # Testing BUY
+data = ["BUY Pikachu Electric Common 19.99 2 1", "BUY Pikachu Electric Common e 2 1", "BUY Pikachu Electric Common 19.99 e 1", "BUY Pikachu Electric Common 19.99 2 e",
+        "BUY", "buy", "BUY Pikachu", "BUY Pikachu Electric", "BUY Pikachu Electric Common 19.99 2", "BUY Pikachu Electric Common 19.99 2 1 1"]                            # Testing BUY - DONE
 
 data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1", "SELL Jigglypuff 1 35.00 2",
         "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
@@ -17,7 +18,7 @@ data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1", "SELL Jigglypuff 1 3
         "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e",
         "SELL", "SELL 1 2 3 4 5"]                                                                                                                                         # Testing SELL - DONE
 
-data = ["BUY Pikachu Electric Common 19.99 2 1"]
+
 """
 
 """
