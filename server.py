@@ -29,6 +29,7 @@ SELL_ARG_LEN = 4
 BUY_ARG_LEN = 6
 ########################
 
+
 # HELPER FUNCTIONS
 ########################
 def isFloat(string):
@@ -424,7 +425,7 @@ def main():
             with conn:
                 print(f"Connected by {addr}")
                 while True:
-                    data = conn.recv(1024).decode()                # Data received from client
+                    data = conn.recv(1024).decode()                   # Data received from client
                     print(f"Received: {data}\n")
 
                     # Client wishes to log off
@@ -440,10 +441,10 @@ def main():
                         print('SERVER SHUTDOWN INITIATED BY USER...')
                         break
                     
-                    message = tokenizer(data, con, c)              # Process message received if not "SHUTDOWN" or "QUIT"
+                    message = tokenizer(data, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
 
                     conn.sendall(bytes(message, encoding="ASCII"))
-                if data == "SHUTDOWN":                             # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
+                if data == "SHUTDOWN":                                # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
                     break
 
 if __name__ == "__main__":
