@@ -12,7 +12,7 @@ INVALID = "400 invalid command"
 ########################
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) == 2:
         host = sys.argv[1]
     else:
         host = "127.0.0.1"
