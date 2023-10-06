@@ -1,16 +1,25 @@
+import sys
 import socket
 
-HOST = "127.0.0.1"
+# GLOBAL VARIABLES
+########################
+# Port info
 PORT = 65432
 
+# Error codes
 OK = "200 OK"
 INVALID = "400 invalid command"
+########################
 
 def main():
+    if len(sys.argv) != 2:
+        host = sys.argv[1]
+    else:
+        host = "127.0.0.1"
     message = ''
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
+        s.connect((host, PORT))
         while message != "SHUTDOWN" and message != "QUIT":
             message = input("c: ")
             if message.isspace() or len(message) == 0:

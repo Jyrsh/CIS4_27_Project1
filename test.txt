@@ -1,0 +1,61 @@
+# Test Data
+"""
+data = ["SHUTDOWN"]                                                                                                                                                       # Testing SHUTDOWN - DONE
+
+data = ["QUIT"]                                                                                                                                                           # Testing QUIT - DONE
+
+data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
+
+data = ["LIST 1", "list 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"] # Testing LIST - DONE
+
+data = [] # Testing BUY
+
+data = ["SELL Pikachu 1 34.99 1", "sell Pikachu 1 34.99 1", "SELL Jigglypuff 1 35.00 2",
+        "SELL Pikac 1 34.99 1", "SELL 1 1 34.99 1",
+        "SELL Pikachu 2 34.99 1", "SELL Pikachu 3 34.99 1", "SELL Pikachu e 34.99 1", "SELL Pikachu 0 34.99 1", "SELL Pikachu -1 34.99 1",
+        "SELL Pikachu 1 b 1", "SELL Pikachu 1 0 1", "SELL Pikachu 1 -1 1",
+        "SELL Pikachu 1 34.99 0", "SELL Pikachu 1 34.99 -1", "SELL Pikachu 1 34.99 5", "SELL Pikachu 1 34.99 e",
+        "SELL", "SELL 1 2 3 4 5"]                                                                                                                                         # Testing SELL - DONE
+
+data = ["BUY Pikachu Electric Common 19.99 2 1"]
+"""
+
+"""
+# Test insert query
+def testInsert(con, c):
+    c.execute(INSERT INTO Users (email, first_name, last_name, user_name, usd_balance) VALUES
+            ('jhwisnie@umich.edu', 'Jacob', 'Wisniewski', 1, 0),
+            ('jsmith@hotmail.com', 'John', 'Smith', 2, 100.00),
+            ('jdoe@gmail.com', 'Jane', 'Doe', 3, 100.00),
+            ('njspence@umich.edu', 'Nick', 'Spencer', 4, 100.00);)
+    con.commit() # Commit changes to db
+    
+    # Test insert query
+    c.execute(INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
+            ('Pikachu', 'Electric', 'Common', 2, 1),
+            ('Charizard', 'Fire', 'Rare', 2, 1),
+            ('Jigglypuff', 'Normal', 'Common', 1, 2),
+            ('Bulbasaur', 'Grass', 'Common', 1, 1);)
+    con.commit() # Commit changes to db
+    
+
+# Test select query
+def testSelect(c):
+    res = c.execute("SELECT * FROM Users;")
+    results = res.fetchall()
+    # No results? Tell so
+    if not results:
+        print("nothing found")
+    for item in results: # Print query result, results in list form
+        print(item)
+    print()
+
+    res = c.execute("SELECT * FROM Pokemon_cards")
+    results = res.fetchall()
+    # No results? Tell so
+    if not results:
+        print("nothing found")
+    for item in results: # Print query result, results in list form
+        print(item)
+    print()
+"""
