@@ -1,6 +1,7 @@
 import socket
 import sqlite3
 import signal
+from math import isinf
 
 # GLOBAL VARIABLES
 ########################
@@ -17,6 +18,8 @@ OK = "200 OK"
 INVALID = "400 invalid command"
 FORMAT = "403 message format order"
 NOT_FOUND = "404 no record found"
+OVERFLOW = "006 Overflow error"
+INF = "420 price is 'inf'"
 
 # Length variables
 LONGEST_POKEMON_NAME = len("Crabominable") + 1 # Longest pokemon name at project time
@@ -58,7 +61,7 @@ def createTables(con, c):
 # Test insert query
 def testInsert(con, c):
     c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, usd_balance) VALUES
-            ('jhwisnie@umich.edu', 'Jacob', 'Wisniewski', 1, 100.00),
+            ('jhwisnie@umich.edu', 'Jacob', 'Wisniewski', 1, 0),
             ('jsmith@hotmail.com', 'John', 'Smith', 2, 100.00),
             ('jdoe@gmail.com', 'Jane', 'Doe', 3, 100.00),
             ('njspence@umich.edu', 'Nick', 'Spencer', 4, 100.00);""")
@@ -66,7 +69,7 @@ def testInsert(con, c):
     
     # Test insert query
     c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
-            ('Pikachu', 'Electric', 'Common', 2, 1),
+            ('Pikachu', 'Electric', 'Common', 999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999, 1),
             ('Charizard', 'Fire', 'Rare', 2, 1),
             ('Jigglypuff', 'Normal', 'Common', 1, 2),
             ('Bulbasaur', 'Grass', 'Common', 1, 1);""")
@@ -96,12 +99,6 @@ def testSelect(c):
 # HELPER FUNCTIONS
 ########################
 
-# Ctrl-C handler for graceful interrupt exit
-def keyboardInterruptHandler(signum, frame):
-    res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
-    if res.lower() == 'y':
-        exit(1)
-
 def isFloat(string):
     try:
         float(string)
@@ -110,7 +107,7 @@ def isFloat(string):
         return False
 
 def insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c):
-    c.execute(f"INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES ('{c_name}', '{c_rarity}', '{c_type}', {c_quantity}, {c_owner});")
+    c.execute(f"INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES ('{c_name}', '{c_type}', '{c_rarity}', {c_quantity}, {c_owner});")
     con.commit()
 
 def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
@@ -149,11 +146,11 @@ def getCardByOwner(owner_id, c):
     selected_cards = []
 
     res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {owner_id};") # db query for selected card
-    results = res.fetchall()                                                      # Tuples of results
+    results = res.fetchall()                                                     # Tuples of results
     # Result of query is not an empty tuple
     if results:
         for item in results:
-            selected_cards.append(item)                                           # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
+            selected_cards.append(item)                                          # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
 
     return selected_cards
 
@@ -207,7 +204,7 @@ def balance(data, c):
     
     #Validate Owner ID Arg
     id = data.pop(0)                      # Store next argument
-    if not id.isnumeric() or int(id) < 1: #Return if owner id is non-int or non-positive
+    if not id.isnumeric() or int(id) < 1: # Return if owner id is non-int or non-positive
         message = FORMAT + "\nBALANCE requires non-zero, positive integer for user"
         return message
     
@@ -277,8 +274,12 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
         message = INVALID + "\nSELL quantity more than card count"
         return message
     
+
     #Adds balance to the user, subtracts card quantity
-    user['usd_balance'] += int(c_quantity)*float(c_price)
+    user['usd_balance'] += int(c_quantity) * float(c_price)
+    if isinf(user['usd_balance']):
+        message = INVALID + "\nResulting balance too high"
+        return message
     card['count'] -= int(c_quantity)
 
     if card['count'] == 0: #If card count is zero, remove the card from the database
@@ -287,7 +288,7 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
         updateCardCount(card, con, c)
     updateUserBalance(user, con, c)
 
-    return OK + f"\nSOLD: New balance: {card['count']} Pikachu. User’s balance USD ${user['usd_balance']:.2f}"
+    return OK + f"\nSOLD: New balance: {card['count']} {card['card_name']}. User's balance USD ${user['usd_balance']:.2f}"
 
 #Validate SELL command args
 def sell(data, con, c):
@@ -298,7 +299,7 @@ def sell(data, con, c):
     #Split command args
     c_name = data.pop(0)
     
-    #Validate Quantity Arg
+    #Validate Quantity Arg 
     c_quantity = data.pop(0)
     if not c_quantity.isnumeric() or int(c_quantity) < 1: #Return if quantity is non-int or non-positive
         message = FORMAT + "\nSELL requires positive, non-zero integer for quantity"
@@ -311,6 +312,9 @@ def sell(data, con, c):
         return message
     elif float(c_price) < 0: #Return if price is non-positive
         message = INVALID + "\nSELL requires a positive float for price"
+        return message
+    elif isinf(float(c_price)):
+        message = INVALID + "\nSELL price is too high"
         return message
     
     #Validate Owner ID Arg
@@ -336,10 +340,13 @@ def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
     if not user:                #Return if user id was not in list
         message = NOT_FOUND + f"\nNo user {c_owner}"
         return message
-    
-    user['usd_balance'] -= int(c_quantity) * float(c_price)
+    try:
+        user['usd_balance'] -= int(c_quantity) * float(c_price)
+    except OverflowError:
+        message = OVERFLOW + "\nQuantity is too large"
+        return message
     if user['usd_balance'] < 0: #Return if selected user does not have enough funds
-        message = INVALID + f"\nUser {c_owner} does not have enough funds to purchase {c_quantity} {c_name}s"
+        message = INVALID + f"\nUser {c_owner} does not have enough funds to purchase {c_quantity} {c_name}(s)"
         return message
     
     if card:                    #If the card is already in the card database, increase count
@@ -349,7 +356,7 @@ def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
         insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c)
     updateUserBalance(user, con, c) #Update user database
 
-    return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User USD balance ${user['usd_balance']:.2f}"
+    return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User's USD balance ${user['usd_balance']:.2f}"
 
 #Validate BUY command args
 def buy(data, con, c):
@@ -370,6 +377,9 @@ def buy(data, con, c):
     elif float(c_price) < 0: #Return if price is non-positive
         message = INVALID + "\nBUY requires a positive float for price"
         return message
+    elif isinf(float(c_price)):
+        message = INF + "\nPrice is 'inf'"
+
     
     #Validate Quantity Arg
     c_quantity = data.pop(0)
@@ -397,16 +407,16 @@ def tokenizer(data, con, c):
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
         return message
-    firstToken = tokens.pop(0)
+    commandToken = tokens.pop(0)
     
     # Function Selection
-    if firstToken.upper() == "BUY":
+    if commandToken == "BUY":
         return buy(tokens, con, c)
-    elif firstToken.upper() == "SELL":
+    elif commandToken == "SELL":
         return sell(tokens, con, c)
-    elif firstToken.upper() == "LIST":
+    elif commandToken == "LIST":
         return listC(tokens, c)
-    elif firstToken.upper() == "BALANCE":
+    elif commandToken == "BALANCE":
         return balance(tokens, c)
     else:
         return INVALID + "\nNo valid command received"
@@ -415,12 +425,24 @@ def main():
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
 
+    # Ctrl-C handler for graceful interrupt exit
+    def keyboardInterruptHandler(signum, frame):
+        res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
+        if res.lower() == 'y':
+            c.execute("DELETE FROM Pokemon_cards;")
+            c.execute("DELETE FROM Users;")
+            con.commit()
+            exit(1)
+
     # Create Tables
     createTables(con, c)
+    
+    testInsert(con, c)
+    testSelect(c)
 
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
-
+    """
     ###############
     # Testing without socket environment needed, will be removed later
     data = ["BUY Pikachu Electric Common 19.99 2 1"]
@@ -442,7 +464,7 @@ def main():
 
     return
     ###############
-
+    """
     # Looped socket connection - DONE
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -473,7 +495,11 @@ def main():
 
                     conn.sendall(bytes(message, encoding="ASCII"))
                 if data == "SHUTDOWN":                             # Only triggered via SHUTDOWN command, otherwise loop for new connections
+                    c.execute("DELETE FROM Pokemon_cards;")
+                    c.execute("DELETE FROM Users;")
+                    con.commit()                             
                     break
+        
 
 if __name__ == "__main__":
     main()
@@ -486,7 +512,7 @@ data = ["QUIT"]                                                                 
 
 data = ["BALANCE 3", "balance 3", "BALANCE 0", "BALANCE -1", "BALANCE 5", "BALANCE E", "BALANCE", "BALANCE 3 4"] # Testing BALANCE - DONE
 
-data = ["list 1", "list 2", "list 0", "list -1", "list 5", "list e", "list", "list 2 3", "LIST 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"] # Testing LIST - DONE
+data = ["LIST 1", "list 1", "LIST 2", "LIST 0", "LIST -1", "LIST 5", "LIST e", "LIST", "LIST 2 3"] # Testing LIST - DONE
 
 data = [] # Testing BUY
 
