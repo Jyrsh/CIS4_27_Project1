@@ -1,0 +1,142 @@
+---Login/Logout Functions---
+LOGIN
+  --------------
+  Client Format: LOGIN UserID Password
+  --------------
+  Validation:
+    UserID matches UserID in user database.
+    Password matches Password in user database.
+    Open socket and thread for the user.
+  Test Cases:
+    Correct Login
+    Incorrect UserID
+    Incorrect Password
+    Login attempt when socket and threads are full
+  Questions:
+    Does root need to always be logged in?
+  Messages:
+    200 OK
+    403 Wrong UserID or Password
+
+LOGOUT
+  --------------
+  Client Format: LOGOUT
+  --------------
+  Messages:
+    200 OK
+
+QUIT
+  --------------
+  Client Format: QUIT
+  --------------
+  Notes:
+    Should run logout if the user is logged in.
+  Questions:
+    Can root be logged out?
+    If root can, does it run SHUTDOWN?
+    Does root need to be logged in always?
+  Messages:
+    200 OK
+
+SHUTDOWN
+  --------------
+  Client Format: SHUTDOWN
+  --------------
+  Notes:
+    Only root can use SHUTDOWN.
+  Messages:
+    200 OK
+    401 non-root user attempting root only command
+
+---Write Functions---
+BUY:
+  --------------
+  Client Format: BUY CardName CardType CardRarity CardPrice CardQuantity (UserID)
+  --------------
+  Validation:
+      CardPrice is a double
+      Quantity is an int
+      UserID is an int and not less than 0
+  Messages:
+    200 OK
+    403 Message format order
+
+SELL:
+  --------------
+  Client Format: SELL CardName CardQuantity SellPrice (UserID)
+  --------------
+  Validation:
+    CardQuantity is an int and within range of cards owned
+    SellPrice is a dpuble
+    UserID is an int and not less than 0
+  Message:
+    200 OK
+    403 Message format order
+
+DEPOSIT
+  --------------
+  Client Format: DEPOSIT Amount (UserID)
+  --------------
+  Validation:
+    Amount must be a float.
+  Messages:
+    200 OK
+
+---Read Only Functions---
+LOOKUP
+  --------------
+  Client Format: LOOKUP Query (UserID)
+  --------------
+  Notes:
+    Partial search is allowed.
+  Messages:
+    200 OK
+    404 Search did not match any record.
+
+WHO
+  --------------
+  Client Format: WHO (UserID)
+  --------------
+  Notes:
+    Only useable by root
+  Messages:
+    200 OK
+    401 Non-root user attempting root only command
+
+LIST
+  --------------
+  Client Format: LIST (UserID)
+  --------------
+  Notes:
+    Only Root can view all cards.
+    Non-root clients can only view their own cards.
+  Messages:
+    200 OK
+
+BALANCE
+  --------------
+  Client Format: BALANCE (UserID)
+  --------------
+  Questions:
+    Is any user allowed to check for a balance of any user?
+    Shoudl root show balance of all users?
+  Messages:
+    200 OK
+
+
+
+
+
+
+Test User Database
+ID Username Password USD_Balance
+1  Root1    Root01   0.00
+2  Mary     Mary01   100.00
+3  John     John01   100.00
+4  Moe      Moe01    100.00
+
+Test Card Database
+ID CardName  CardType CardRarity CardCount OwnerID
+1  Pikachu   Electric Common     2         John
+2  Charizard Fire     Rare       1         Jane
+5  Charizard Fire     Rare       6         John
