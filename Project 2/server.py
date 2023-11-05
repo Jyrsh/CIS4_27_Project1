@@ -165,8 +165,21 @@ def createTables(con, c):
     );""")
     con.commit() # Commit changes to db
 
+# FOR P2
 
-    #FOR P2
+def printCards(fields, cards):
+    message = ''
+    for item in fields:
+        message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+    message += '\n'
+    for card in cards:
+        for field in card:
+            message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+        message += '\n'
+    
+    return message
 
 ########################
 
@@ -210,39 +223,23 @@ def balance(data, c):
 def listAllCards(c):
     res = c.execute(f"SELECT * FROM Pokemon_cards")
     result = res.fetchall()
-    message = OK + f"\nThe list of records in the Pokemon cards table for all users:\n"
+    message = OK + f"\nThe list of records in the Pokemon cards table:\n"
 
-    for item in CARD_KEYS:
-        message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-    message += '\n'
-    for card in result:
-        for field in card:
-            message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-        message += '\n'
+    message += printCards(CARD_KEYS, result)
 
     return message
 
-def listCardsForOwner(owner_id, c):
+def listCardsForOwner(owner_name, owner_id, c):
     #Get User's Cards
     cards = getCardByOwner(owner_id, c)
 
     if not cards:   #Return if user owns no cards or the ID is not in the database
-        message = NOT_FOUND + f"\nNo cards owned by {owner_id}, user may not exist"                         # Error 404, selected user does not exist
+        message = NOT_FOUND + f"\nNo cards owned by {owner_name}, user may not exist"                         # Error 404, selected user does not exist
         return message
     
     #Print list of cards
-    message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_id}:\n"
-    for item in CARD_KEYS:
-        message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-    message += '\n'
-    for card in cards:
-        for field in card:
-            message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-        message += '\n'
+    message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_name}:\n"
+    message += printCards(CARD_KEYS, cards)
 
     return message
 
@@ -255,7 +252,7 @@ def listC(c):
         message = listAllCards(c)
 
     else:
-        message = listCardsForOwner(ACTIVE_USERID, c)
+        message = listCardsForOwner(active_user['user_name'], ACTIVE_USERID, c)
 
     return message
 ########################
@@ -497,14 +494,17 @@ def main():
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     # signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
+    print(str(ACTIVE_USERID) + '\n')
     input = "LOGIN DefaultUser Root01"
+    print(input)
     message = tokenizer(input, con, c)
-    print(message)
-    print(ACTIVE_USERID)
+    print(message + '\n')
+    print("Active User: " + str(ACTIVE_USERID) + '\n')
     input = "LIST"
+    print(input)
     message = tokenizer(input, con, c)
-    print(message)
-    print(ACTIVE_USERID)
+    print(message + '\n')
+    print("Active User: " + str(ACTIVE_USERID) + '\n')
 
     """
     # Looped socket connection - DONE
