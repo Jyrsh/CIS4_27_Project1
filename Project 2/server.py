@@ -2,6 +2,7 @@ import sys
 import socket
 import sqlite3
 import signal
+import threading
 from math import isinf
 
 # GLOBAL VARIABLES
@@ -12,11 +13,13 @@ PORT = 65432
 # For zipping select results to reference in messages relayed to client
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
 CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
+USER_SESSION_KEYS = ('id', 'user_name')
 
 # Error codes
 OK = "200 OK"
 INVALID = "400 invalid command"
-FORMAT = "403 message format order"
+LOGIN_FAIL = "403 Wrong UserID or Password"
+FORMAT = "405 message format order"
 NOT_FOUND = "404 no record found"
 OVERFLOW = "006 Overflow error"
 INF = "420 price is 'inf'"
@@ -28,6 +31,9 @@ LIST_ARG_LEN = 1
 BALANCE_ARG_LEN = 1
 SELL_ARG_LEN = 4
 BUY_ARG_LEN = 6
+LOGIN_ARG_LEN = 2
+
+ACTIVE_USERID = None
 ########################
 
 
@@ -110,8 +116,9 @@ def getUser(user_id, c):
     return selected_user
 
 def insertDefaultUser(con, c):
-    c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, usd_balance) VALUES
-            ('default@umich.edu', 'Default', 'User', 1, 100.00)
+    c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, password, usd_balance) VALUES
+            ('default@umich.edu', 'Default', 'User', 'DefaultUser', 'Root01', 100.00),
+            ('root@umich.edu',    'Root',    'User', 'Root',        'Root01', 100.00)
             ;""")
     con.commit()
 
@@ -132,8 +139,8 @@ def createTables(con, c):
             email TEXT NOT NULL,
             first_name TEXT,
             last_name TEXT,
-            user_name INTEGER NOT NULL,
-            password INTEGER,
+            user_name TEXT NOT NULL,
+            password TEXT,
             usd_balance DOUBLE NOT NULL
     );""")
     con.commit() # Commit changes to db
@@ -149,6 +156,18 @@ def createTables(con, c):
             FOREIGN KEY (owner_id) REFERENCES Users (ID)
     );""")
     con.commit() # Commit changes to db
+
+    # User session Table
+    c.execute("""CREATE TABLE IF NOT EXISTS User_sessions (
+            ID INTEGER PRIMARY KEY,
+            user_name TEXT NOT NULL,
+            FOREIGN KEY (user_name) REFERENCES Users (ID)
+    );""")
+    con.commit() # Commit changes to db
+
+
+    #FOR P2
+
 ########################
 
 
@@ -188,7 +207,23 @@ def balance(data, c):
 
 # LIST FUNCTIONS
 ########################
-#Process LIST command
+def listAllCards(c):
+    res = c.execute(f"SELECT * FROM Pokemon_cards")
+    result = res.fetchall()
+    message = OK + f"\nThe list of records in the Pokemon cards table for all users:\n"
+
+    for item in CARD_KEYS:
+        message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+    message += '\n'
+    for card in result:
+        for field in card:
+            message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+        message += '\n'
+
+    return message
+
 def listCardsForOwner(owner_id, c):
     #Get User's Cards
     cards = getCardByOwner(owner_id, c)
@@ -201,28 +236,26 @@ def listCardsForOwner(owner_id, c):
     message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_id}:\n"
     for item in CARD_KEYS:
         message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
+
     message += '\n'
     for card in cards:
         for field in card:
             message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+
         message += '\n'
 
     return message
 
 #Validate LIST command args
-def listC(data, c):
-    message = numberOfArgs(data, LIST_ARG_LEN) #Check if command has correct number of args
-    if message:                                #Return if too many or too few args
-        return message
-    
-    #Get and validate Owner ID Arg
-    id = data.pop(0)                      #Store next argument
-    if not id.isnumeric() or int(id) < 1: #Return if owner id is non-int or non-positive
-        message = FORMAT + "\nLIST requires non-zero, positive integer for user"
-        return message
-    
-    #Run LIST Command
-    message = listCardsForOwner(id, c)                          # Hand off to message builder
+def listC(c):
+    res = c.execute(f"SELECT * FROM User_sessions WHERE (id) = {ACTIVE_USERID};")
+    result = res.fetchone()
+    active_user = dict(zip(USER_SESSION_KEYS, result))
+    if active_user['user_name'] == "Root":
+        message = listAllCards(c)
+
+    else:
+        message = listCardsForOwner(ACTIVE_USERID, c)
 
     return message
 ########################
@@ -375,13 +408,50 @@ def buy(data, con, c):
     return message
 ########################
 
-##LOGIN Functions
+# LOGIN FUNCTION
+def login(data, con, c):
+    global ACTIVE_USERID
+
+    message = numberOfArgs(data, LOGIN_ARG_LEN)
+    if message:
+        return message
+    
+    #Get command args
+    u_name = data.pop(0)
+    u_pass = data.pop(0)
+    
+    # check against user_session table
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_name = '{u_name}';")
+    result = res.fetchone()
+    if result:
+        message = LOGIN_FAIL + "\nUser already logged in"
+        return message
+    
+    # check against user table for correct info
+    res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');")
+    result = res.fetchone()
+    if not result:
+        message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
+        return message
+
+    # user not currently active and valid login info
+    c.execute(f"INSERT INTO User_sessions (user_name) VALUES ('{u_name}');")
+    con.commit()
+
+    # assign userID from UserSession to ACTIVEID
+    res = c.execute(f"SELECT * FROM User_sessions WHERE (user_name) = ('{u_name}');")
+    result = res.fetchone()
+    active_user = dict(zip(USER_SESSION_KEYS, result))
+    ACTIVE_USERID = active_user['id']
+
+    message = OK + f"\nUser {u_name} successfully signed in"
+    return message
 
 ##LOGOUT Functions
 
-
-
 def tokenizer(data, con, c):
+    global ACTIVE_USERID
+
     tokens = data.split() # Split Input Into Strings
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
@@ -394,24 +464,29 @@ def tokenizer(data, con, c):
     elif commandToken == "SELL":
         return sell(tokens, con, c)
     elif commandToken == "LIST":
-        return listC(tokens, c)
+        return listC(c)
     elif commandToken == "BALANCE":
         return balance(tokens, c)
+    elif commandToken == 'LOGIN':
+        return login(tokens, con, c)
     return INVALID + "\nNo valid command received"
 
 def main():
+    global ACTIVE_USERID
+
     if len(sys.argv) == 2:
         host = sys.argv[1]
     else:
         host = "127.0.0.1"
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
-
+    """
     # Ctrl-C handler for graceful interrupt exit
     def keyboardInterruptHandler(signum, frame):
         res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
         if res.lower() == 'y':
             exit(1)
+    """
 
     # Create Tables
     createTables(con, c)
@@ -420,8 +495,18 @@ def main():
         insertDefaultUser(con, c)
 
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
-    signal.signal(signal.SIGINT, keyboardInterruptHandler)
+    # signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
+    input = "LOGIN DefaultUser Root01"
+    message = tokenizer(input, con, c)
+    print(message)
+    print(ACTIVE_USERID)
+    input = "LIST"
+    message = tokenizer(input, con, c)
+    print(message)
+    print(ACTIVE_USERID)
+
+    """
     # Looped socket connection - DONE
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -430,6 +515,7 @@ def main():
             s.listen()
             conn, addr = s.accept()
             with conn:
+                print_lock.acquire()
                 print(f"Connected by {addr}")
                 while True:
                     data = conn.recv(1024).decode()                   # Data received from client
@@ -442,17 +528,23 @@ def main():
                     # No data received, client is not connected, wait for new client
                     elif not data:
                         break
-                    # Client wishes to shutdown server
-                    elif data == "SHUTDOWN":                       
-                        conn.sendall(bytes(OK, encoding="ASCII"))
-                        print('SERVER SHUTDOWN INITIATED BY USER...')
-                        break
                     
                     message = tokenizer(data, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
 
                     conn.sendall(bytes(message, encoding="ASCII"))
-                if data == "SHUTDOWN":                                # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
-                    break
+    """
+
 
 if __name__ == "__main__":
     main()
+
+""" 
+# Client wishes to shutdown server
+elif data == "SHUTDOWN":                       
+    conn.sendall(bytes(OK, encoding="ASCII"))
+    print('SERVER SHUTDOWN INITIATED BY USER...')
+    break 
+    
+if data == "SHUTDOWN":                                # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
+    break
+"""
