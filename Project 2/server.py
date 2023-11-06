@@ -13,7 +13,7 @@ PORT = 65432
 # For zipping select results to reference in messages relayed to client
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
 CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
-USER_SESSION_KEYS = ('id', 'user_name')
+USER_SESSION_KEYS = ('id', 'user_id', 'user_name', 'IP_address')
 
 # Error codes
 OK = "200 OK"
@@ -90,7 +90,7 @@ def getCardByOwner(owner_id, c):
     # Result of query is not an empty tuple
     if results:
         for item in results:
-            selected_cards.append(item)                            # Map associated card fields to results in a duct for easier formatting of return message later on, add it into selected_cards list
+            selected_cards.append(item)
 
     return selected_cards
 
@@ -117,8 +117,9 @@ def getUser(user_id, c):
 
 def insertDefaultUser(con, c):
     c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, password, usd_balance) VALUES
+            ('root@umich.edu',    'Root',    'User', 'Root',        'Root01', 100.00),
             ('default@umich.edu', 'Default', 'User', 'DefaultUser', 'Root01', 100.00),
-            ('root@umich.edu',    'Root',    'User', 'Root',        'Root01', 100.00)
+            ('blamo@umich.edu',   'Blam',    'o',    'blamo',       'Root01', 100.00)
             ;""")
     con.commit()
 
@@ -153,27 +154,38 @@ def createTables(con, c):
             rarity TEXT NOT NULL,
             count INTEGER,
             owner_id INTEGER,
-            FOREIGN KEY (owner_id) REFERENCES Users (ID)
+            FOREIGN KEY (owner_id) REFERENCES Users(ID)
     );""")
     con.commit() # Commit changes to db
 
-    # User session Table
+    # User sessions Table
     c.execute("""CREATE TABLE IF NOT EXISTS User_sessions (
             ID INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
             user_name TEXT NOT NULL,
-            FOREIGN KEY (user_name) REFERENCES Users (ID)
+            IP_address TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES Users(ID)
     );""")
     con.commit() # Commit changes to db
+
+    c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
+            ('Pikachu', 'Electric', 'Common', 2, 1),
+            ('Diglet', 'Electric', 'Common', 3, 2),
+            ('idgaf', 'Electric', 'Common', 1, 1),
+            ('idgaf', 'Electric', 'Common', 1, 3)
+    ;""")
+    con.commit()
+
 
 # FOR P2
 
-def printCards(fields, cards):
+def printTable(fields, data):
     message = ''
     for item in fields:
         message += f"{item.ljust(LONGEST_POKEMON_NAME, ' ')}"
 
     message += '\n'
-    for card in cards:
+    for card in data:
         for field in card:
             message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
 
@@ -183,9 +195,18 @@ def printCards(fields, cards):
 
 ########################
 
+# DEPOSIT FUNCTIONS
+########################
+
+# Validate/Execut DEPOSIT
+def deposit(data, id, con, c):
+    pass
+
+########################
 
 # BALANCE FUNCTIONS
 ########################
+
 #Process Balance command
 def balanceForOwner(user_id, c):
     #Get User Information
@@ -215,51 +236,54 @@ def balance(data, c):
     message = balanceForOwner(id, c)   # Hand off to message builder
 
     return message
+
 ########################
 
 
 # LIST FUNCTIONS
 ########################
+
+# Process LIST command for Root user
 def listAllCards(c):
     res = c.execute(f"SELECT * FROM Pokemon_cards")
     result = res.fetchall()
     message = OK + f"\nThe list of records in the Pokemon cards table:\n"
 
-    message += printCards(CARD_KEYS, result)
+    message += printTable(CARD_KEYS, result)
 
     return message
 
-def listCardsForOwner(owner_name, owner_id, c):
+# Process LIST command for active user
+def listCardsForOwner(user, c):
     #Get User's Cards
-    cards = getCardByOwner(owner_id, c)
+    cards = getCardByOwner(user['id'], c)
 
     if not cards:   #Return if user owns no cards or the ID is not in the database
-        message = NOT_FOUND + f"\nNo cards owned by {owner_name}, user may not exist"                         # Error 404, selected user does not exist
+        message = NOT_FOUND + f"\nNo cards owned by {user['user_name']}, user may not exist"                         # Error 404, selected user does not exist
         return message
     
     #Print list of cards
-    message = OK + f"\nThe list of records in the Pokemon cards table for current user, user {owner_name}:\n"
-    message += printCards(CARD_KEYS, cards)
+    message = OK + f"\nThe list of records in the Pokemon cards table for current user, {user['user_name']}:\n"
+    message += printTable(CARD_KEYS, cards)
 
     return message
 
-#Validate LIST command args
-def listC(c):
-    res = c.execute(f"SELECT * FROM User_sessions WHERE (id) = {ACTIVE_USERID};")
-    result = res.fetchone()
-    active_user = dict(zip(USER_SESSION_KEYS, result))
-    if active_user['user_name'] == "Root":
+# Direct LIST command based on user
+def listC(user, c):
+    if user['user_name'] == "Root":
         message = listAllCards(c)
 
     else:
-        message = listCardsForOwner(active_user['user_name'], ACTIVE_USERID, c)
+        message = listCardsForOwner(user, c)
 
     return message
+
 ########################
 
 
 # SELL FUNCTIONS
 ########################
+
 #Process SELL command
 def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
     #Get User and User's Card Information
@@ -330,11 +354,12 @@ def sell(data, con, c):
     message = sellCard(c_name, c_quantity, c_price, c_owner, con, c)
 
     return message
-########################
 
+########################
 
 # BUY FUNCTIONS
 ########################
+
 #Proccess BUY command
 def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
     #Get User and User's Card Information
@@ -406,7 +431,7 @@ def buy(data, con, c):
 ########################
 
 # LOGIN FUNCTION
-def login(data, con, c):
+def login(data, host, con, c):
     global ACTIVE_USERID
 
     message = numberOfArgs(data, LOGIN_ARG_LEN)
@@ -417,38 +442,38 @@ def login(data, con, c):
     u_name = data.pop(0)
     u_pass = data.pop(0)
     
-    # check against user_session table
-    res = c.execute(f"SELECT * FROM User_sessions WHERE user_name = '{u_name}';")
-    result = res.fetchone()
-    if result:
-        message = LOGIN_FAIL + "\nUser already logged in"
-        return message
-    
     # check against user table for correct info
     res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');")
     result = res.fetchone()
     if not result:
         message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
         return message
+    active_user = dict(zip(USER_KEYS, result))
+
+    # check against user_session table
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = '{active_user['id']}';")
+    result = res.fetchone()
+    if result:
+        message = LOGIN_FAIL + "\nUser already logged in"
+        return message
 
     # user not currently active and valid login info
-    c.execute(f"INSERT INTO User_sessions (user_name) VALUES ('{u_name}');")
+    c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');")
     con.commit()
+    message = OK + f"\nUser {active_user['user_name']} successfully signed in"
 
     # assign userID from UserSession to ACTIVEID
-    res = c.execute(f"SELECT * FROM User_sessions WHERE (user_name) = ('{u_name}');")
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = {active_user['id']};")
     result = res.fetchone()
-    active_user = dict(zip(USER_SESSION_KEYS, result))
     ACTIVE_USERID = active_user['id']
-
-    message = OK + f"\nUser {u_name} successfully signed in"
     return message
 
-##LOGOUT Functions
+# LOGOUT FUNCTION might be simpler than this and a break from threaded loop
+########################
 
-def tokenizer(data, con, c):
-    global ACTIVE_USERID
+########################
 
+def tokenizerThreaded(data, user, con, c):
     tokens = data.split() # Split Input Into Strings
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
@@ -461,12 +486,27 @@ def tokenizer(data, con, c):
     elif commandToken == "SELL":
         return sell(tokens, con, c)
     elif commandToken == "LIST":
-        return listC(c)
+        return listC(user, c)
     elif commandToken == "BALANCE":
         return balance(tokens, c)
-    elif commandToken == 'LOGIN':
-        return login(tokens, con, c)
     return INVALID + "\nNo valid command received"
+
+def tokenizerNotThreaded(data, host, con, c):
+    global ACTIVE_USERID
+
+    tokens = data.split() # Split Input Into Strings
+    if not tokens:        # If No Input Given
+        message = INVALID + "\nNo valid command received"
+        return message
+    commandToken = tokens.pop(0)
+    
+    # Function Selection
+    if commandToken == 'LOGIN':
+        return login(tokens, host, con, c)
+    return INVALID + "\nNo valid command received"
+
+def threaded():
+    pass
 
 def main():
     global ACTIVE_USERID
@@ -495,16 +535,40 @@ def main():
     # signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
     print(str(ACTIVE_USERID) + '\n')
-    input = "LOGIN DefaultUser Root01"
+
+
+    # TEST IN MAIN
+    ########################
+
+    # get active user for threaded session
+    res = c.execute(f"SELECT * FROM Users;")
+    result = res.fetchall()
+    print(printTable(USER_KEYS, result))
+
+    # process non-threaded commands
+    input = "LOGIN blamo Root01"
     print(input)
-    message = tokenizer(input, con, c)
+    message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
     print(message + '\n')
+
+    res = c.execute("SELECT * FROM User_sessions;")
+    result = res.fetchall()
+    print(printTable(USER_SESSION_KEYS, result))
+
     print("Active User: " + str(ACTIVE_USERID) + '\n')
+
+    # get active user for threaded session
+    res = c.execute(f"SELECT * FROM Users WHERE (id) = {ACTIVE_USERID};")
+    result = res.fetchone()
+    active_user = dict(zip(USER_KEYS, result))
+
+    # process threaded commands
     input = "LIST"
     print(input)
-    message = tokenizer(input, con, c)
+    message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
     print(message + '\n')
-    print("Active User: " + str(ACTIVE_USERID) + '\n')
+
+    ########################
 
     """
     # Looped socket connection - DONE
@@ -548,3 +612,5 @@ elif data == "SHUTDOWN":
 if data == "SHUTDOWN":                                # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
     break
 """
+
+#GIL may pose a problem later
