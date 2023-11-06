@@ -2,6 +2,7 @@ import sys
 import socket
 import sqlite3
 import signal
+from _thread import *
 import threading
 from math import isinf
 
@@ -34,8 +35,9 @@ BUY_ARG_LEN = 6
 LOGIN_ARG_LEN = 2
 WHO_ARG_LEN = 0
 DEPOSIT_ARG_LEN = 1
+LOOKUP_ARG_LEN = 1
 
-ACTIVE_USERID = None
+print_lock = threading.Lock()
 ########################
 
 
@@ -174,12 +176,12 @@ def createTables(con, c):
             ('Pikachu', 'Electric', 'Common', 2, 1),
             ('Diglet', 'Electric', 'Common', 3, 2),
             ('idgaf', 'Electric', 'Common', 1, 1),
+            ('Pikachu', 'Electric', 'Rare', 6, 1),
+            ('Pi', 'Electric', 'Rare', 4, 1),
+            ('Pik', 'Electric', 'Rare', 8, 1),
             ('idgaf', 'Electric', 'Common', 1, 3)
     ;""")
     con.commit()
-
-
-# FOR P2
 
 def printTable(fields, data):
     message = ''
@@ -197,9 +199,43 @@ def printTable(fields, data):
 
 ########################
 
-#WHO FUNCTIONS
-########################
+# LOOKUP FUNCTION
+def lookup(data, user, c):
+    target = []
+    
+    message = numberOfArgs(data, LOOKUP_ARG_LEN)
+    if message:
+        return message
+    
+    message = ''
+    
+    c_name = data.pop(0)
 
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {user['id']};")
+    result = res.fetchall()
+    
+    for card in result:
+        for i in range(len(card)):
+            if c_name in str(card[i]):
+                target.append(card)
+
+    if not target:
+        message = NOT_FOUND + f"\nNo cards of {c_name} found for {user['user_name']}"
+        return message
+    
+    for field in CARD_KEYS:
+        message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+    message += '\n'
+    for item in target:
+        for i in range(len(item)):
+            message += f"{str(item[i]).ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+        message += '\n'
+
+    return OK + '\n' + message
+
+# WHO FUNCTION
 def who(data, user, c):
     message = numberOfArgs(data, WHO_ARG_LEN)
     if message:
@@ -233,14 +269,8 @@ def who(data, user, c):
 
     message = OK + '\n' + message
     return message
-    
-########################
 
-
-# DEPOSIT FUNCTIONS
-########################
-
-# Validate/Execut DEPOSIT
+# DEPOSIT FUNCTION
 def deposit(data, user, con, c):
     message = numberOfArgs(data, DEPOSIT_ARG_LEN)
     if message:
@@ -263,12 +293,55 @@ def deposit(data, user, con, c):
 
     return OK + f"\nDeposit successful. New User Balance ${user['usd_balance']:.2f}"
 
-########################
+# LOGIN FUNCTION
+def login(data, host, threads, conn, con, c):
+    message = numberOfArgs(data, LOGIN_ARG_LEN)
+    if message:
+        return message
+    
+    #Get command args
+    u_name = data.pop(0)
+    u_pass = data.pop(0)
+    
+    # check against user table for correct info
+    res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');")
+    result = res.fetchone()
+    if not result:
+        message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
+        return message
+    active_user = dict(zip(USER_KEYS, result))
+
+    # check against user_session table
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = '{active_user['id']}';")
+    result = res.fetchone()
+    if result:
+        message = LOGIN_FAIL + "\nUser already logged in"
+        return message
+
+    # user not currently active and valid login info
+    c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');")
+    con.commit()
+    message = OK + f"\nUser {active_user['user_name']} successfully signed in"
+
+    t = threading.Thread(target = threaded, args = [conn, message, active_user])
+    print_lock.release()
+    threading.Thread.start(t)
+
+    """
+    if len(threads) < 11:
+        t = threading.Thread(target = threaded, args = [conn, message, active_user])
+        print_lock.release()
+        threading.Thread.run(t)
+    for thread in threads:
+        threading.Thread.join(thread)
+    """
+
+    return message
 
 # BALANCE FUNCTIONS
 ########################
 
-#Process Balance command
+# Process Balance command
 def balanceForOwner(user_id, c):
     #Get User Information
     user = getUser(user_id, c)
@@ -281,7 +354,7 @@ def balanceForOwner(user_id, c):
 
     return message
 
-#Validate BALANCE command args
+# Validate BALANCE command args
 def balance(data, c):
     message = numberOfArgs(data, BALANCE_ARG_LEN) #Check if command has correct number of args
     if message:                                   #Return if too many or too few args
@@ -331,9 +404,9 @@ def listCardsForOwner(user, c):
 
 # Direct LIST command based on user
 def listC(user, data, c):
-    message = numberOfArgs(data, LIST_ARG_LEN)
-    if message:
-        return message
+    #message = numberOfArgs(data, LIST_ARG_LEN)
+    #if message:
+    #    return message
     
     if user['user_name'] == "Root":
         message = listAllCards(c)
@@ -349,7 +422,7 @@ def listC(user, data, c):
 # SELL FUNCTIONS
 ########################
 
-#Process SELL command
+# Process SELL command
 def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
     #Get User and User's Card Information
     user = getUser(c_owner, c)
@@ -382,7 +455,7 @@ def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
 
     return OK + f"\nSOLD: New balance: {card['count']} {card['card_name']}. User's balance USD ${user['usd_balance']:.2f}"
 
-#Validate SELL command args
+# Validate SELL command args
 def sell(data, con, c):
     message = numberOfArgs(data, SELL_ARG_LEN) #Check if command has correct number of args
     if message:                                #Return if too many or too few args
@@ -425,7 +498,7 @@ def sell(data, con, c):
 # BUY FUNCTIONS
 ########################
 
-#Proccess BUY command
+# Proccess BUY command
 def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
     #Get User and User's Card Information
     user = getUser(c_owner, c)
@@ -455,7 +528,7 @@ def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
 
     return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User's USD balance ${user['usd_balance']:.2f}"
 
-#Validate BUY command args
+# Validate BUY command args
 def buy(data, con, c):
     message = numberOfArgs(data, BUY_ARG_LEN) #Check if command has correct number of args
     if message:                               #Return if too many or too few args
@@ -496,44 +569,6 @@ def buy(data, con, c):
 
 ########################
 
-# LOGIN FUNCTION
-def login(data, host, con, c):
-    global ACTIVE_USERID
-
-    message = numberOfArgs(data, LOGIN_ARG_LEN)
-    if message:
-        return message
-    
-    #Get command args
-    u_name = data.pop(0)
-    u_pass = data.pop(0)
-    
-    # check against user table for correct info
-    res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');")
-    result = res.fetchone()
-    if not result:
-        message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
-        return message
-    active_user = dict(zip(USER_KEYS, result))
-
-    # check against user_session table
-    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = '{active_user['id']}';")
-    result = res.fetchone()
-    if result:
-        message = LOGIN_FAIL + "\nUser already logged in"
-        return message
-
-    # user not currently active and valid login info
-    c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');")
-    con.commit()
-    message = OK + f"\nUser {active_user['user_name']} successfully signed in"
-
-    # assign userID from UserSession to ACTIVEID
-    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = {active_user['id']};")
-    result = res.fetchone()
-    ACTIVE_USERID = active_user['id']
-    return message
-
 # LOGOUT FUNCTION might be simpler than this and a break from threaded loop
 ########################
 
@@ -559,11 +594,11 @@ def tokenizerThreaded(data, user, con, c):
         return who(tokens, user, c)
     elif commandToken == "DEPOSIT":
         return deposit(tokens, user, con, c)
+    elif commandToken == "LOOKUP":
+        return lookup(tokens, user, c)
     return INVALID + "\nNo valid command received"
 
-def tokenizerNotThreaded(data, host, con, c):
-    global ACTIVE_USERID
-
+def tokenizerNotThreaded(data, host, threads, conn, con, c):
     tokens = data.split() # Split Input Into Strings
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
@@ -572,15 +607,35 @@ def tokenizerNotThreaded(data, host, con, c):
     
     # Function Selection
     if commandToken == 'LOGIN':
-        return login(tokens, host, con, c)
+        return login(tokens, host, threads, conn, con, c)
+    
     return INVALID + "\nNo valid command received"
 
-def threaded():
-    # Active user will be set here
-    pass
+def threaded(conn, message, active_user):
+    con = sqlite3.connect('database.db') # Open/create and connect to database
+    c = con.cursor()                     # Create a cursor
+    
+    conn.sendall(bytes(message, encoding="ASCII")) # Return successful login
+    while True:
+        data = conn.recv(1024).decode() # Data received from client                  
+        print(f"Received: {data}\n")
+
+        # Client wishes to log off
+        if data == "LOGOUT":
+            conn.sendall(bytes(OK, encoding="ASCII"))
+            break
+        # No data received, client is not connected, wait for new client
+        elif active_user['user_name'] == 'Root' and data == "SHUTDOWN":
+            pass
+        elif not data:
+            break
+        
+        message = tokenizerThreaded(data, active_user, con, c)
+
+        conn.sendall(bytes(message, encoding="ASCII"))
+    return
 
 def main():
-    global ACTIVE_USERID
 
     if len(sys.argv) == 2:
         host = sys.argv[1]
@@ -588,13 +643,14 @@ def main():
         host = "127.0.0.1"
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
-    """
+
+    threads = []
+
     # Ctrl-C handler for graceful interrupt exit
     def keyboardInterruptHandler(signum, frame):
         res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
         if res.lower() == 'y':
             exit(1)
-    """
 
     # Create Tables
     createTables(con, c)
@@ -603,11 +659,9 @@ def main():
         insertDefaultUser(con, c)
 
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
-    # signal.signal(signal.SIGINT, keyboardInterruptHandler)
+    signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
-    print(str(ACTIVE_USERID) + '\n')
-
-
+    """
     # TEST IN MAIN
     ########################
 
@@ -617,7 +671,7 @@ def main():
     print(printTable(USER_KEYS, result))
 
     # process non-threaded commands
-    input = "LOGIN DefaultUser Root01"
+    input = "LOGIN Root Root01"
     print(input)
     message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
     print(message + '\n')
@@ -634,7 +688,7 @@ def main():
     active_user = dict(zip(USER_KEYS, result))
 
     # process threaded commands
-    input = "DEPOSIT 100"
+    input = "LOOKUP klhjadfgjhqawnfsdg"
     print(input)
     message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
     print(message + '\n')
@@ -644,18 +698,18 @@ def main():
     print(printTable(USER_KEYS, result))
     printTable(USER_KEYS, result)
 
+    return
     ########################
-
     """
-    # Looped socket connection - DONE
+
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, PORT))
             s.listen()
             conn, addr = s.accept()
+            print_lock.acquire()
             with conn:
-                print_lock.acquire()
                 print(f"Connected by {addr}")
                 while True:
                     data = conn.recv(1024).decode()                   # Data received from client
@@ -669,10 +723,9 @@ def main():
                     elif not data:
                         break
                     
-                    message = tokenizer(data, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
+                    message = tokenizerNotThreaded(data, host, threads, conn, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
 
                     conn.sendall(bytes(message, encoding="ASCII"))
-    """
 
 if __name__ == "__main__":
     main()
@@ -692,7 +745,7 @@ if data == "SHUTDOWN":                                # Only triggered via SHUTD
 
 #LIST done
 #LOGIN done
-#LOOKUP 
+#LOOKUP done
 #WHO done
 #DEPOSIT done
 #LOGOUT
