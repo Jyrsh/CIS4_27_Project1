@@ -27,11 +27,13 @@ LOG = "403 Wrong UserID or Password"
 
 # Length variables
 LONGEST_POKEMON_NAME = len("Crabominable") + 1 # Longest pokemon name at project time
-LIST_ARG_LEN = 1
+LIST_ARG_LEN = 0
 BALANCE_ARG_LEN = 1
 SELL_ARG_LEN = 4
 BUY_ARG_LEN = 6
 LOGIN_ARG_LEN = 2
+WHO_ARG_LEN = 0
+DEPOSIT_ARG_LEN = 1
 
 ACTIVE_USERID = None
 ########################
@@ -195,12 +197,71 @@ def printTable(fields, data):
 
 ########################
 
+#WHO FUNCTIONS
+########################
+
+def who(data, user, c):
+    message = numberOfArgs(data, WHO_ARG_LEN)
+    if message:
+        return message
+    
+    if user['user_name'] != "Root":
+        message = INVALID + "\nOnly user Root can execute this command"
+        return message
+    
+    message = ''
+    res = c.execute(f"SELECT * FROM User_sessions")
+    result = list(res.fetchall())
+    field_names = list(USER_SESSION_KEYS)
+    print(result)
+    print(field_names)
+
+    for field in field_names:
+        if field == 'user_name':
+            message += f"{field.ljust(LONGEST_POKEMON_NAME, ' ')}"
+        elif field == 'IP_address':
+            message += f"{field.ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+    message += '\n'
+    for value in result:
+        for i in range(len(value)):
+            if i > 1:
+                message += f"{value[i].ljust(LONGEST_POKEMON_NAME, ' ')}"
+
+        message += '\n'
+
+
+    message = OK + '\n' + message
+    return message
+    
+########################
+
+
 # DEPOSIT FUNCTIONS
 ########################
 
 # Validate/Execut DEPOSIT
-def deposit(data, id, con, c):
-    pass
+def deposit(data, user, con, c):
+    message = numberOfArgs(data, DEPOSIT_ARG_LEN)
+    if message:
+        return message
+    
+    money_to_add = data.pop(0)
+    if not isFloat(money_to_add): #Return if price is non-float type
+        message = FORMAT + "\nDEPOSIT requires a float for money to add"
+        return message
+    elif float(money_to_add) < 0: #Return if price is non-positive
+        message = INVALID + "\nDEPOSIT requires a positive float for money to add"
+        return message
+
+    user['usd_balance'] += float(money_to_add)
+    if isinf(user['usd_balance']):
+        message = INVALID + "\nResulting balance too high"
+        return message
+    
+    updateUserBalance(user, con, c)
+
+    return OK + f"\nDeposit successful. New User Balance ${user['usd_balance']:.2f}"
 
 ########################
 
@@ -269,7 +330,11 @@ def listCardsForOwner(user, c):
     return message
 
 # Direct LIST command based on user
-def listC(user, c):
+def listC(user, data, c):
+    message = numberOfArgs(data, LIST_ARG_LEN)
+    if message:
+        return message
+    
     if user['user_name'] == "Root":
         message = listAllCards(c)
 
@@ -428,6 +493,7 @@ def buy(data, con, c):
     message = buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c)
 
     return message
+
 ########################
 
 # LOGIN FUNCTION
@@ -486,9 +552,13 @@ def tokenizerThreaded(data, user, con, c):
     elif commandToken == "SELL":
         return sell(tokens, con, c)
     elif commandToken == "LIST":
-        return listC(user, c)
+        return listC(tokens, user, c)
     elif commandToken == "BALANCE":
         return balance(tokens, c)
+    elif commandToken == "WHO":
+        return who(tokens, user, c)
+    elif commandToken == "DEPOSIT":
+        return deposit(tokens, user, con, c)
     return INVALID + "\nNo valid command received"
 
 def tokenizerNotThreaded(data, host, con, c):
@@ -506,6 +576,7 @@ def tokenizerNotThreaded(data, host, con, c):
     return INVALID + "\nNo valid command received"
 
 def threaded():
+    # Active user will be set here
     pass
 
 def main():
@@ -546,7 +617,7 @@ def main():
     print(printTable(USER_KEYS, result))
 
     # process non-threaded commands
-    input = "LOGIN blamo Root01"
+    input = "LOGIN DefaultUser Root01"
     print(input)
     message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
     print(message + '\n')
@@ -563,10 +634,15 @@ def main():
     active_user = dict(zip(USER_KEYS, result))
 
     # process threaded commands
-    input = "LIST"
+    input = "DEPOSIT 100"
     print(input)
     message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
     print(message + '\n')
+    
+    res = c.execute(f"SELECT * FROM Users;")
+    result = res.fetchall()
+    print(printTable(USER_KEYS, result))
+    printTable(USER_KEYS, result)
 
     ########################
 
@@ -598,7 +674,6 @@ def main():
                     conn.sendall(bytes(message, encoding="ASCII"))
     """
 
-
 if __name__ == "__main__":
     main()
 
@@ -614,3 +689,11 @@ if data == "SHUTDOWN":                                # Only triggered via SHUTD
 """
 
 #GIL may pose a problem later
+
+#LIST done
+#LOGIN done
+#LOOKUP 
+#WHO done
+#DEPOSIT done
+#LOGOUT
+#SHUTDOWN
