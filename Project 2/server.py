@@ -11,7 +11,7 @@ import asyncio
 ########################
 # Port info
 PORT = 65432
-MaxThreads = 1
+MaxThreads = 2
 ThreadIDs = [False] * MaxThreads
 
 # For zipping select results to reference in messages relayed to client
@@ -396,7 +396,7 @@ def listCardsForOwner(user, c):
     return message
 
 # Direct LIST command based on user
-def listC(user, data, c):
+def listC(data, user, c):
     message = numberOfArgs(data, LIST_ARG_LEN)
     if message:
         return message
@@ -600,17 +600,12 @@ def tokenizer(data, client, con, c):
     return INVALID + "\nNo valid command received"
 
 def client_handler(connection, address, tID):
-    print_lock.acquire()
+    #print_lock.acquire()
     active_user = None
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
-    
-    createTables(con, c)                 # Create Tables
-
-    if isUserTableEmpty(c):
-        insertDefaultUser(con, c)
-
-    connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
+    #:p
+    #connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
     while True:
         data = connection.recv(1024).decode()
         print(f"C{tID}: {data}")
@@ -628,7 +623,7 @@ def client_handler(connection, address, tID):
 
         print(f"S: {message}")
         connection.sendall(bytes(message, encoding="ASCII"))
-        print_lock.release()
+        #print_lock.release()
 
     message = f"CLOSE"
     connection.sendall(bytes(message, encoding="ASCII"))
@@ -636,12 +631,12 @@ def client_handler(connection, address, tID):
     ThreadIDs[tID] = False
 
 def accept_connections(server):
-    print_lock.acquire()
+    #print_lock.acquire()
     client, address = server.accept()
     print(f"Connected to: {address}")
     start_new_thread(client_handler, (client, address[0], find_open_thread()))
     ThreadIDs[find_open_thread()] = True
-    print_lock.release()
+    #print_lock.release()
 
 def find_open_thread():
     for i in range(MaxThreads):
@@ -674,6 +669,14 @@ def main():
         HOST = sys.argv[1]
     else:
         HOST = "127.0.0.1"
+
+    con = sqlite3.connect('database.db') # Open/create and connect to database
+    c = con.cursor()                     # Create a cursor
+    
+    createTables(con, c)                 # Create Tables
+
+    if isUserTableEmpty(c):
+        insertDefaultUser(con, c)
 
     # Ctrl-C handler for graceful interrupt exit
     def keyboardInterruptHandler(signum, frame):
