@@ -11,8 +11,9 @@ import asyncio
 ########################
 # Port info
 PORT = 65432
-MaxThreads = 2
+MaxThreads = 10
 ThreadIDs = [False] * MaxThreads
+ServerRunning = True
 
 # For zipping select results to reference in messages relayed to client
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
@@ -252,8 +253,6 @@ def who(data, user, c):
     res = c.execute(f"SELECT * FROM User_sessions")
     result = list(res.fetchall())
     field_names = list(USER_SESSION_KEYS)
-    print(result)
-    print(field_names)
 
     for field in field_names:
         if field == 'user_name':
@@ -600,6 +599,7 @@ def tokenizer(data, client, con, c):
     return INVALID + "\nNo valid command received"
 
 def client_handler(connection, address, tID):
+    global ServerRunning
     while True:
         active_user = None
         con = sqlite3.connect('database.db') # Open/create and connect to database
@@ -611,12 +611,25 @@ def client_handler(connection, address, tID):
             print(f"C{tID}: {data}")
 
             if data == 'QUIT':
+                c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};")
+                con.commit()
                 break
 
             elif data == 'LOGOUT':
+                c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};")
+                con.commit()
                 active_user = None
                 connection.sendall(bytes("Logging out", encoding="ASCII"))
                 continue
+
+            elif data == 'SHUTDOWN':
+                if active_user and active_user['user_name'] == 'Root': 
+                    connection.sendall(bytes("Shutting Down Server... OwO", encoding="ASCII"))
+                    ServerRunning = False
+                    break
+
+                else:    
+                    connection.sendall(bytes("Not Root User", encoding="ASCII"))
 
             if not active_user:
                 message = tokenizer(data, address, con, c)
@@ -667,7 +680,7 @@ def start_server(HOST, PORT):
     #if find_open_thread() != None:
     server.listen()
 
-    while True:
+    while ServerRunning:
         if find_open_thread() != None:
             accept_connections(server)
 
@@ -679,7 +692,9 @@ def main():
 
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
-    
+
+    c.execute(f"DELETE FROM Pokemon_cards;")
+    con.commit()    
     createTables(con, c)                 # Create Tables
 
     if isUserTableEmpty(c):
@@ -694,6 +709,8 @@ def main():
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
+    c.execute(f"DELETE FROM User_sessions;")
+    con.commit()
     start_server(HOST, PORT)
 
 if __name__ == "__main__":

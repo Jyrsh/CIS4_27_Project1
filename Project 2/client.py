@@ -20,7 +20,7 @@ def main():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((host, PORT))
-        while message != "SHUTDOWN" and message != "QUIT":
+        while message !=  "QUIT":
             message = input("c: ")
             if message.isspace() or len(message) == 0:
                 print(f"{INVALID}\nNo valid command received\n")
