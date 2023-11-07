@@ -600,30 +600,37 @@ def tokenizer(data, client, con, c):
     return INVALID + "\nNo valid command received"
 
 def client_handler(connection, address, tID):
-    #print_lock.acquire()
-    active_user = None
-    con = sqlite3.connect('database.db') # Open/create and connect to database
-    c = con.cursor()                     # Create a cursor
-    #:p
-    #connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
     while True:
-        data = connection.recv(1024).decode()
-        print(f"C{tID}: {data}")
+        active_user = None
+        con = sqlite3.connect('database.db') # Open/create and connect to database
+        c = con.cursor()                     # Create a cursor
+        #:p
+        #connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
+        while True:
+            data = connection.recv(1024).decode()
+            print(f"C{tID}: {data}")
 
-        if data == 'BYE':
+            if data == 'QUIT':
+                break
+
+            elif data == 'LOGOUT':
+                active_user = None
+                connection.sendall(bytes("Logging out", encoding="ASCII"))
+                continue
+
+            if not active_user:
+                message = tokenizer(data, address, con, c)
+                if type(message) != str:
+                    active_user = message[0]
+                    message = message[1]
+            else:
+                message = tokenizerLoggedIn(data, active_user, con, c)
+
+            print(f"S: {message}")
+            connection.sendall(bytes(message, encoding="ASCII"))
+            #print_lock.release()
+        if data == "QUIT":
             break
-
-        if not active_user:
-            message = tokenizer(data, address, con, c)
-            if type(message) != str:
-                active_user = message[0]
-                message = message[1]
-        else:
-            message = tokenizerLoggedIn(data, active_user, con, c)
-
-        print(f"S: {message}")
-        connection.sendall(bytes(message, encoding="ASCII"))
-        #print_lock.release()
 
     message = f"CLOSE"
     connection.sendall(bytes(message, encoding="ASCII"))
