@@ -7,30 +7,30 @@ MaxThreads = 1
 ThreadIDs = [False] * MaxThreads
 
 def client_handler(connection, tID):
-    connection.send(str.encode('Connected to server!'))
+    connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
     while True:
-        data = connection.recv(2048)
-        message = data.decode('utf-8')
-        print(f"C{tID}: {message}")
-        if message == 'BYE':
+        data = connection.recv(1024).decode()
+        print(f"C{tID}: {data}")
+        if data == 'BYE':
             break
-        reply = f'Server: {message}'
-        print(f"S: {reply}")
-        connection.sendall(str.encode(reply))
-    reply = f"CLOSE"
 
-    connection.sendall(str.encode(reply))
+        message = data
+        print(f"S: {message}")
+        connection.sendall(bytes(message, encoding="ASCII"))
+
+    message = f"CLOSE"
+    connection.sendall(bytes(message, encoding="ASCII"))
     connection.close()
     ThreadIDs[tID] = False
 
-
 def accept_connections(server):
     client, address = server.accept()
-    print(f"Connected to: {address[0]:{address[1]}}")
+    print(f"Connected to: {address}")
     threadID = find_open_thread()
     if threadID != None:        
         start_new_thread(client_handler, (client, threadID))
         ThreadIDs[threadID] = True
+
     else:
         print("Threads are filled")
         client.close()
@@ -40,6 +40,7 @@ def find_open_thread():
     for i in range(MaxThreads):
         if ThreadIDs[i] == False:
             return i
+        
     return None
 
 def start_server(HOST, PORT):
@@ -52,6 +53,7 @@ def start_server(HOST, PORT):
         print("Waiting for clients...")
     except socket.error:
         print(str(socket.error))
+
     #if find_open_thread() != None:
     server.listen()
 

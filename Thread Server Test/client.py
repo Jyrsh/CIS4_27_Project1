@@ -4,18 +4,21 @@ PORT = 65432
 
 client = socket.socket()
 print('Waiting for connection')
+
 try:
     client.connect((HOST, PORT))
     print("Connected!")
     print("Waiting for open thread")
 except socket.error:
     print(str(socket.error))
-reply = client.recv(2048).decode('utf-8')
+
+reply = client.recv(1024).decode()
 print("Connected!")
 
 while reply != "CLOSE":
     message = input('Your message: ')
-    client.send(str.encode(message))
-    reply = client.recv(2048).decode('utf-8')
+    client.sendall(bytes(message, encoding="ASCII"))
+    reply = client.recv(1024).decode()
     print(reply)
+    
 client.close()

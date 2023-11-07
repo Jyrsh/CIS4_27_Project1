@@ -5,11 +5,14 @@ import signal
 from _thread import *
 import threading
 from math import isinf
+import asyncio
 
 # GLOBAL VARIABLES
 ########################
 # Port info
 PORT = 65432
+MaxThreads = 1
+ThreadIDs = [False] * MaxThreads
 
 # For zipping select results to reference in messages relayed to client
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
@@ -294,10 +297,12 @@ def deposit(data, user, con, c):
     return OK + f"\nDeposit successful. New User Balance ${user['usd_balance']:.2f}"
 
 # LOGIN FUNCTION
-def login(data, host, threads, conn, con, c):
+def login(data, host, con, c):
+    active_user = None
+    
     message = numberOfArgs(data, LOGIN_ARG_LEN)
     if message:
-        return message
+        return active_user, message
     
     #Get command args
     u_name = data.pop(0)
@@ -308,35 +313,23 @@ def login(data, host, threads, conn, con, c):
     result = res.fetchone()
     if not result:
         message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
-        return message
+        return active_user, message
     active_user = dict(zip(USER_KEYS, result))
 
     # check against user_session table
-    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = '{active_user['id']}';")
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = {active_user['id']};")
     result = res.fetchone()
     if result:
+        active_user = None
         message = LOGIN_FAIL + "\nUser already logged in"
-        return message
+        return active_user, message
 
     # user not currently active and valid login info
     c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');")
     con.commit()
     message = OK + f"\nUser {active_user['user_name']} successfully signed in"
 
-    t = threading.Thread(target = threaded, args = [conn, message, active_user])
-    print_lock.release()
-    threading.Thread.start(t)
-
-    """
-    if len(threads) < 11:
-        t = threading.Thread(target = threaded, args = [conn, message, active_user])
-        print_lock.release()
-        threading.Thread.run(t)
-    for thread in threads:
-        threading.Thread.join(thread)
-    """
-
-    return message
+    return active_user, message
 
 # BALANCE FUNCTIONS
 ########################
@@ -404,9 +397,9 @@ def listCardsForOwner(user, c):
 
 # Direct LIST command based on user
 def listC(user, data, c):
-    #message = numberOfArgs(data, LIST_ARG_LEN)
-    #if message:
-    #    return message
+    message = numberOfArgs(data, LIST_ARG_LEN)
+    if message:
+        return message
     
     if user['user_name'] == "Root":
         message = listAllCards(c)
@@ -569,12 +562,7 @@ def buy(data, con, c):
 
 ########################
 
-# LOGOUT FUNCTION might be simpler than this and a break from threaded loop
-########################
-
-########################
-
-def tokenizerThreaded(data, user, con, c):
+def tokenizerLoggedIn(data, user, con, c):
     tokens = data.split() # Split Input Into Strings
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
@@ -598,7 +586,7 @@ def tokenizerThreaded(data, user, con, c):
         return lookup(tokens, user, c)
     return INVALID + "\nNo valid command received"
 
-def tokenizerNotThreaded(data, host, threads, conn, con, c):
+def tokenizer(data, client, con, c):
     tokens = data.split() # Split Input Into Strings
     if not tokens:        # If No Input Given
         message = INVALID + "\nNo valid command received"
@@ -607,44 +595,85 @@ def tokenizerNotThreaded(data, host, threads, conn, con, c):
     
     # Function Selection
     if commandToken == 'LOGIN':
-        return login(tokens, host, threads, conn, con, c)
+        return login(tokens, client, con, c)
     
     return INVALID + "\nNo valid command received"
 
-def threaded(conn, message, active_user):
+def client_handler(connection, address, tID):
+    print_lock.acquire()
+    active_user = None
     con = sqlite3.connect('database.db') # Open/create and connect to database
     c = con.cursor()                     # Create a cursor
     
-    conn.sendall(bytes(message, encoding="ASCII")) # Return successful login
+    createTables(con, c)                 # Create Tables
+
+    if isUserTableEmpty(c):
+        insertDefaultUser(con, c)
+
+    connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
     while True:
-        data = conn.recv(1024).decode() # Data received from client                  
-        print(f"Received: {data}\n")
+        data = connection.recv(1024).decode()
+        print(f"C{tID}: {data}")
 
-        # Client wishes to log off
-        if data == "LOGOUT":
-            conn.sendall(bytes(OK, encoding="ASCII"))
+        if data == 'BYE':
             break
-        # No data received, client is not connected, wait for new client
-        elif active_user['user_name'] == 'Root' and data == "SHUTDOWN":
-            pass
-        elif not data:
-            break
+
+        if not active_user:
+            message = tokenizer(data, address, con, c)
+            if type(message) != str:
+                active_user = message[0]
+                message = message[1]
+        else:
+            message = tokenizerLoggedIn(data, active_user, con, c)
+
+        print(f"S: {message}")
+        connection.sendall(bytes(message, encoding="ASCII"))
+        print_lock.release()
+
+    message = f"CLOSE"
+    connection.sendall(bytes(message, encoding="ASCII"))
+    connection.close()
+    ThreadIDs[tID] = False
+
+def accept_connections(server):
+    print_lock.acquire()
+    client, address = server.accept()
+    print(f"Connected to: {address}")
+    start_new_thread(client_handler, (client, address[0], find_open_thread()))
+    ThreadIDs[find_open_thread()] = True
+    print_lock.release()
+
+def find_open_thread():
+    for i in range(MaxThreads):
+        if ThreadIDs[i] == False:
+            return i
         
-        message = tokenizerThreaded(data, active_user, con, c)
+    return None
 
-        conn.sendall(bytes(message, encoding="ASCII"))
-    return
+def start_server(HOST, PORT):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    print("Starting Server")
+
+    try:
+        server.bind((HOST, PORT))
+        print("Server Started!")
+        print("Waiting for clients...")
+    except socket.error:
+        print(str(socket.error))
+
+    #if find_open_thread() != None:
+    server.listen()
+
+    while True:
+        if find_open_thread() != None:
+            accept_connections(server)
 
 def main():
-
     if len(sys.argv) == 2:
-        host = sys.argv[1]
+        HOST = sys.argv[1]
     else:
-        host = "127.0.0.1"
-    con = sqlite3.connect('database.db') # Open/create and connect to database
-    c = con.cursor()                     # Create a cursor
-
-    threads = []
+        HOST = "127.0.0.1"
 
     # Ctrl-C handler for graceful interrupt exit
     def keyboardInterruptHandler(signum, frame):
@@ -652,80 +681,10 @@ def main():
         if res.lower() == 'y':
             exit(1)
 
-    # Create Tables
-    createTables(con, c)
-
-    if isUserTableEmpty(c):
-        insertDefaultUser(con, c)
-
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
-    """
-    # TEST IN MAIN
-    ########################
-
-    # get active user for threaded session
-    res = c.execute(f"SELECT * FROM Users;")
-    result = res.fetchall()
-    print(printTable(USER_KEYS, result))
-
-    # process non-threaded commands
-    input = "LOGIN Root Root01"
-    print(input)
-    message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
-    print(message + '\n')
-
-    res = c.execute("SELECT * FROM User_sessions;")
-    result = res.fetchall()
-    print(printTable(USER_SESSION_KEYS, result))
-
-    print("Active User: " + str(ACTIVE_USERID) + '\n')
-
-    # get active user for threaded session
-    res = c.execute(f"SELECT * FROM Users WHERE (id) = {ACTIVE_USERID};")
-    result = res.fetchone()
-    active_user = dict(zip(USER_KEYS, result))
-
-    # process threaded commands
-    input = "LOOKUP klhjadfgjhqawnfsdg"
-    print(input)
-    message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
-    print(message + '\n')
-    
-    res = c.execute(f"SELECT * FROM Users;")
-    result = res.fetchall()
-    print(printTable(USER_KEYS, result))
-    printTable(USER_KEYS, result)
-
-    return
-    ########################
-    """
-
-    while True:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((host, PORT))
-            s.listen()
-            conn, addr = s.accept()
-            print_lock.acquire()
-            with conn:
-                print(f"Connected by {addr}")
-                while True:
-                    data = conn.recv(1024).decode()                   # Data received from client
-                    print(f"Received: {data}\n")
-
-                    # Client wishes to log off
-                    if data == "QUIT":
-                        conn.sendall(bytes(OK, encoding="ASCII"))
-                        break
-                    # No data received, client is not connected, wait for new client
-                    elif not data:
-                        break
-                    
-                    message = tokenizerNotThreaded(data, host, threads, conn, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
-
-                    conn.sendall(bytes(message, encoding="ASCII"))
+    start_server(HOST, PORT)
 
 if __name__ == "__main__":
     main()
@@ -750,3 +709,97 @@ if data == "SHUTDOWN":                                # Only triggered via SHUTD
 #DEPOSIT done
 #LOGOUT
 #SHUTDOWN
+
+"""
+# TEST IN MAIN
+########################
+
+# get active user for threaded session
+res = c.execute(f"SELECT * FROM Users;")
+result = res.fetchall()
+print(printTable(USER_KEYS, result))
+
+# process non-threaded commands
+input = "LOGIN Root Root01"
+print(input)
+message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
+print(message + '\n')
+
+res = c.execute("SELECT * FROM User_sessions;")
+result = res.fetchall()
+print(printTable(USER_SESSION_KEYS, result))
+
+print("Active User: " + str(ACTIVE_USERID) + '\n')
+
+# get active user for threaded session
+res = c.execute(f"SELECT * FROM Users WHERE (id) = {ACTIVE_USERID};")
+result = res.fetchone()
+active_user = dict(zip(USER_KEYS, result))
+
+# process threaded commands
+input = "LOOKUP klhjadfgjhqawnfsdg"
+print(input)
+message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
+print(message + '\n')
+
+res = c.execute(f"SELECT * FROM Users;")
+result = res.fetchall()
+print(printTable(USER_KEYS, result))
+printTable(USER_KEYS, result)
+
+return
+########################
+"""
+
+"""
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, PORT))
+            s.listen()
+            conn, addr = s.accept()
+
+            with conn:
+                print(f"Connected by {addr}")
+                while True:
+                    data = conn.recv(1024).decode()                   # Data received from client
+                    print(f"Received: {data}\n")
+
+                    # Client wishes to log off
+                    if data == "QUIT":
+                        conn.sendall(bytes(OK, encoding="ASCII"))
+                        break
+                    # No data received, client is not connected, wait for new client
+                    elif not data:
+                        break
+                    
+                    message = tokenizerNotThreaded(data, host, threads, conn, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
+
+                    conn.sendall(bytes(message, encoding="ASCII"))
+"""
+
+"""
+def threaded(conn, message, active_user):
+    con = sqlite3.connect('database.db') # Open/create and connect to database
+    c = con.cursor()                     # Create a cursor
+    
+    conn.sendall(bytes(message, encoding="ASCII")) # Return successful login
+    while True:
+        data = conn.recv(1024).decode() # Data received from client
+        print(f"Received: {data}\n")
+
+        # Client wishes to log off
+        if data == "LOGOUT":
+            conn.sendall(bytes(OK, encoding="ASCII"))
+            break
+        # No data received, client is not connected, wait for new client
+        elif active_user['user_name'] == 'Root' and data == "SHUTDOWN":
+            pass
+        elif not data:
+            break
+        
+        message = tokenizerLogin(data, active_user, con, c)
+
+        conn.sendall(bytes(message, encoding="ASCII"))
+    return
+"""
