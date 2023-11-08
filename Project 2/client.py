@@ -17,10 +17,11 @@ def main():
     else:
         HOST = "127.0.0.1"
     message = ''
+    data = ''
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
-        while message !=  "QUIT":
+        while message !=  "QUIT" and (message != "SHUTDOWN" and data != '200 OK\nShutting Down Server...'):
             message = input("c: ")
             if message.isspace() or len(message) == 0:
                 print(f"{INVALID}\nNo valid command received\n")
