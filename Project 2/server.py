@@ -1,18 +1,19 @@
 import sys
-import os
-import socket
 import sqlite3
-import signal
+import socket
 from _thread import *
 from math import isinf
+import os
+import signal
 
 # GLOBAL VARIABLES
 ########################
 # Port info
 PORT = 65432
+
+# Thread info
 MaxThreads = 10
 ThreadIDs = [False] * MaxThreads
-ServerRunning = True
 
 # For zipping with SELECT results for easier data handling
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
@@ -570,11 +571,9 @@ def tokenizer(data, client, con, c):
     return INVALID + "\nNo valid command received" # 400 invalid command
 
 def client_handler(connection, address, tID):
-    global ServerRunning
-
     active_user = None
     con = sqlite3.connect('database.db') # Open/create and connect to database, for each thread
-    c = con.cursor()                     # Create a cursor
+    c = con.cursor() # Create a cursor
 
     while True:
         data = connection.recv(1024).decode()
@@ -584,18 +583,18 @@ def client_handler(connection, address, tID):
             c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};") # delete user session
             con.commit()
             active_user = None
-            connection.sendall(bytes("Quitting", encoding="ASCII"))
+            connection.sendall(bytes(OK, encoding="ASCII"))
             break
 
         elif data == 'QUIT' and not active_user: # QUIT command w/o login
-            connection.sendall(bytes("Quitting", encoding="ASCII"))
+            connection.sendall(bytes(OK, encoding="ASCII"))
             break
 
         elif data == 'LOGOUT' and active_user: # LOGOUT command
             c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};") # delete user session
             con.commit()
             active_user = None
-            connection.sendall(bytes(OK + '\n', encoding="ASCII"))
+            connection.sendall(bytes(OK, encoding="ASCII"))
             continue
 
         elif data == 'SHUTDOWN' and active_user and active_user['user_name'] == 'Root': # SHUTDOWN command
@@ -652,10 +651,9 @@ def start_server(HOST, PORT):
     except socket.error:
         print(str(socket.error))
 
-    #if find_open_thread() != None:
-    server.listen()
+    server.listen() #if find_open_thread() != None:
 
-    while ServerRunning:
+    while True:
         if find_open_thread() != None:
             accept_connections(server)
 
@@ -665,19 +663,17 @@ def main():
     else:
         HOST = "127.0.0.1"
 
-    # Ctrl-C handler for graceful interrupt exit
-    def keyboardInterruptHandler(signum, frame):
+    def keyboardInterruptHandler(signum, frame): # Ctrl-C handler for graceful interrupt exit
         res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
         if res.lower() == 'y':
             exit()
 
-    # Keyboard Interrupt Handler for graceful exit with Ctrl-C
-    signal.signal(signal.SIGINT, keyboardInterruptHandler)
+    signal.signal(signal.SIGINT, keyboardInterruptHandler) # Keyboard Interrupt Handler for graceful exit with Ctrl-C
 
     con = sqlite3.connect('database.db') # Open/create and connect to database, for original queries on server startup
-    c = con.cursor()                     # Create a cursor
+    c = con.cursor() # Create a cursor
 
-    createTables(con, c)                 # Create Tables, if not existant
+    createTables(con, c) # Create Tables, if not existant
     if isUserTableEmpty(c):
         insertDefaultUser(con, c)
 
