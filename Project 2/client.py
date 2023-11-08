@@ -12,14 +12,15 @@ INVALID = "400 invalid command"
 ########################
 
 def main():
+    print(str(sys.argv))
     if len(sys.argv) == 2:
-        host = sys.argv[1]
+        HOST = sys.argv[0]
     else:
-        host = "127.0.0.1"
+        HOST = "127.0.0.1"
     message = ''
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((host, PORT))
+        s.connect((HOST, PORT))
         while message !=  "QUIT":
             message = input("c: ")
             if message.isspace() or len(message) == 0:

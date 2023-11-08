@@ -1,11 +1,12 @@
 import sys
+import os
 import socket
 import sqlite3
 import signal
+from multiprocessing import Process
 from _thread import *
 import threading
 from math import isinf
-import asyncio
 
 # GLOBAL VARIABLES
 ########################
@@ -15,38 +16,34 @@ MaxThreads = 10
 ThreadIDs = [False] * MaxThreads
 ServerRunning = True
 
-# For zipping select results to reference in messages relayed to client
+# For zipping with SELECT results for easier data handling
 USER_KEYS = ('id', 'email', 'first_name', 'last_name', 'user_name', 'password', 'usd_balance')
 CARD_KEYS = ('id', 'card_name', 'card_type', 'rarity', 'count', 'owner_id')
 USER_SESSION_KEYS = ('id', 'user_id', 'user_name', 'IP_address')
 
 # Error codes
+OVERFLOW = "006 Overflow error"
 OK = "200 OK"
 INVALID = "400 invalid command"
+ACCESS = "401 security refusal"
 LOGIN_FAIL = "403 Wrong UserID or Password"
-FORMAT = "405 message format order"
 NOT_FOUND = "404 no record found"
-OVERFLOW = "006 Overflow error"
+FORMAT = "405 message format order"
 INF = "420 price is 'inf'"
-LOG = "403 Wrong UserID or Password"
 
 # Length variables
 LONGEST_POKEMON_NAME = len("Crabominable") + 1 # Longest pokemon name at project time
 LIST_ARG_LEN = 0
-BALANCE_ARG_LEN = 1
-SELL_ARG_LEN = 4
-BUY_ARG_LEN = 6
-LOGIN_ARG_LEN = 2
 WHO_ARG_LEN = 0
+BALANCE_ARG_LEN = 1
 DEPOSIT_ARG_LEN = 1
 LOOKUP_ARG_LEN = 1
-
-print_lock = threading.Lock()
+LOGIN_ARG_LEN = 2
+SELL_ARG_LEN = 4
+BUY_ARG_LEN = 6
 ########################
 
-
-# HELPER FUNCTIONS
-########################
+# Helper to determine if a string is in float format
 def isFloat(string):
     try:
         float(string)
@@ -54,10 +51,12 @@ def isFloat(string):
     except:
         return False
 
+# Helper to insert card into Pokemon_cards table
 def insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c):
     c.execute(f"INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES ('{c_name}', '{c_type}', '{c_rarity}', {c_quantity}, {c_owner});")
     con.commit()
 
+# Helper to get card by owner id, owner name and card rarity
 def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
     selected_card = {}
 
@@ -68,77 +67,88 @@ def getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c):
 
     return selected_card
 
+# Helper to update a user's balance
 def updateUserBalance(user, con, c):
     c.execute(f"UPDATE Users SET usd_balance = {user['usd_balance']:.2f} WHERE id = {user['id']};")
     con.commit()
 
+# Helepr to update a card's quantity
 def updateCardCount(card, con, c):
     c.execute(f"UPDATE Pokemon_cards SET count = {card['count']} WHERE id = {card['id']};")
     con.commit()
 
+# Helper to remove card from Pokemon_cards table
 def deleteCard(card, c_owner, con, c):
     c.execute(f"DELETE FROM Pokemon_cards WHERE (card_name, owner_id) = ('{card['card_name']}', {c_owner});")
     con.commit()
 
+# Helper to get card dict by owner id and card name
 def getCardByOwnerName(owner_id, c_name, c):
     selected_card = {}
 
-    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE (card_name, owner_id) = ('{c_name}', {owner_id});")
-    result = res.fetchone()
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE (card_name, owner_id) = ('{c_name}', {owner_id});") # db query for selected card
+    result = res.fetchone() # tuple result
     if result:
-        selected_card = dict(zip(CARD_KEYS, result))               # Map associated user fields to results in a dict for easier formatting of return message later on
+        selected_card = dict(zip(CARD_KEYS, result)) # map associated user fields to results in a dict for easier formatting of return message later on
 
     return selected_card
 
+# Helper to get card dict by owner id
 def getCardByOwner(owner_id, c):
     selected_cards = []
 
     res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {owner_id};") # db query for selected card
-    results = res.fetchall()                                                     # Tuples of results
-    # Result of query is not an empty tuple
-    if results:
+    results = res.fetchall() # tuples results
+    if results: # result of query is not an empty tuple
         for item in results:
             selected_cards.append(item)
 
     return selected_cards
 
+# Helper to determin if command is valid based on argument list length
 def numberOfArgs(data, arg_len):
     if len(data) < arg_len:
-        message = FORMAT + "\nNot enough args"
+        message = FORMAT + "\nNot enough args" # 405 message format order
         return message
+    
     elif len(data) > arg_len:
-        message = FORMAT + "\nToo many args"
+        message = FORMAT + "\nToo many args" # 405 message format order
         return message
     
     return None
 
+# Helper to get a User in a dict
 def getUser(user_id, c):
     selected_user = None
 
-    res = c.execute(f"SELECT * FROM Users WHERE id = {user_id};") # db query for selected user
-    result = res.fetchone()                                       # Tuple for result
-    # Result of query is not an empty tuple
+    res = c.execute(f"SELECT * FROM Users WHERE id = {user_id};")
+    result = res.fetchone()
     if result:
-        selected_user = dict(zip(USER_KEYS, result))              # Map associated user fields to results in a dict for easier formatting of return message later on
+        selected_user = dict(zip(USER_KEYS, result))
 
     return selected_user
 
+# Helper to insert default users
 def insertDefaultUser(con, c):
     c.execute("""INSERT INTO Users (email, first_name, last_name, user_name, password, usd_balance) VALUES
-            ('root@umich.edu',    'Root',    'User', 'Root',        'Root01', 100.00),
-            ('default@umich.edu', 'Default', 'User', 'DefaultUser', 'Root01', 100.00),
-            ('blamo@umich.edu',   'Blam',    'o',    'blamo',       'Root01', 100.00)
+            ('root@umich.edu',     'Root', 'User',        'Root', 'Root01', 100.00),
+            ('mpoppins@umich.edu', 'Mary', 'PoppinsYall', 'Mary', 'Mary01', 100.00),
+            ('jdoe@umich.edu',     'John', 'Doe',         'John', 'John01', 100.00),
+            ('mschmoe@umich.edu',  'Moe',  'Schmoe',      'Moe',  'Moe01',  100.00)
             ;""")
     con.commit()
 
+# Helper to check if Users table is empty
 def isUserTableEmpty(c):
     res = c.execute("SELECT * FROM Users;")
     results = res.fetchall()
 
     if not results:
         return True
+    
     return False
 
+# Helper for creating tables
 def createTables(con, c):
     # No AUTO_INCREMENT support like w/ example table in sqlite3 for python
     #   Still auto increments for each entry added, so it does the same thing
@@ -176,17 +186,7 @@ def createTables(con, c):
     );""")
     con.commit() # Commit changes to db
 
-    c.execute("""INSERT INTO Pokemon_cards (card_name, card_type, rarity, count, owner_id) VALUES
-            ('Pikachu', 'Electric', 'Common', 2, 1),
-            ('Diglet', 'Electric', 'Common', 3, 2),
-            ('idgaf', 'Electric', 'Common', 1, 1),
-            ('Pikachu', 'Electric', 'Rare', 6, 1),
-            ('Pi', 'Electric', 'Rare', 4, 1),
-            ('Pik', 'Electric', 'Rare', 8, 1),
-            ('idgaf', 'Electric', 'Common', 1, 3)
-    ;""")
-    con.commit()
-
+# Helper for printing a table
 def printTable(fields, data):
     message = ''
     for item in fields:
@@ -201,173 +201,130 @@ def printTable(fields, data):
     
     return message
 
-########################
-
-# LOOKUP FUNCTION
+# Validate and process LOOKUP command
 def lookup(data, user, c):
     target = []
-    
-    message = numberOfArgs(data, LOOKUP_ARG_LEN)
+    message = numberOfArgs(data, LOOKUP_ARG_LEN) # argument check
+
     if message:
         return message
     
     message = ''
-    
-    c_name = data.pop(0)
-
-    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {user['id']};")
+    substring = data.pop(0)
+    res = c.execute(f"SELECT * FROM Pokemon_cards WHERE owner_id = {user['id']};") # get cards for the active user
     result = res.fetchall()
     
     for card in result:
         for i in range(len(card)):
-            if c_name in str(card[i]):
-                target.append(card)
+            if substring in str(card[i]): # if substring matches or is a substring of a specific card field
+                target.append(card) # add card to target
 
-    if not target:
-        message = NOT_FOUND + f"\nNo cards of {c_name} found for {user['user_name']}"
+    if not target: # target is empty, no cards have substring
+        message = NOT_FOUND + f"\nYour search did not match any records" # 404 NOT FOUND
         return message
     
+    message += f"Found {len(target)} match(es)\n\n"
     for field in CARD_KEYS:
-        message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}"
+        message += f"{str(field).ljust(LONGEST_POKEMON_NAME, ' ')}" # add card categories to return message
 
     message += '\n'
     for item in target:
         for i in range(len(item)):
-            message += f"{str(item[i]).ljust(LONGEST_POKEMON_NAME, ' ')}"
+            message += f"{str(item[i]).ljust(LONGEST_POKEMON_NAME, ' ')}" # add card fields to return message
 
         message += '\n'
 
-    return OK + '\n' + message
-
-# WHO FUNCTION
-def who(data, user, c):
-    message = numberOfArgs(data, WHO_ARG_LEN)
-    if message:
-        return message
-    
-    if user['user_name'] != "Root":
-        message = INVALID + "\nOnly user Root can execute this command"
-        return message
-    
-    message = ''
-    res = c.execute(f"SELECT * FROM User_sessions")
-    result = list(res.fetchall())
-    field_names = list(USER_SESSION_KEYS)
-
-    for field in field_names:
-        if field == 'user_name':
-            message += f"{field.ljust(LONGEST_POKEMON_NAME, ' ')}"
-        elif field == 'IP_address':
-            message += f"{field.ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-    message += '\n'
-    for value in result:
-        for i in range(len(value)):
-            if i > 1:
-                message += f"{value[i].ljust(LONGEST_POKEMON_NAME, ' ')}"
-
-        message += '\n'
-
-
-    message = OK + '\n' + message
+    message = OK + '\n' + message # 200 OK
     return message
 
-# DEPOSIT FUNCTION
+# Validate and process DEPOSIT command
 def deposit(data, user, con, c):
     message = numberOfArgs(data, DEPOSIT_ARG_LEN)
     if message:
         return message
     
     money_to_add = data.pop(0)
-    if not isFloat(money_to_add): #Return if price is non-float type
-        message = FORMAT + "\nDEPOSIT requires a float for money to add"
+    if not isFloat(money_to_add):
+        message = FORMAT + "\nDEPOSIT requires a float for money to add" # 405 message format order
         return message
-    elif float(money_to_add) < 0: #Return if price is non-positive
-        message = INVALID + "\nDEPOSIT requires a positive float for money to add"
+    
+    elif float(money_to_add) < 0:
+        message = INVALID + "\nDEPOSIT requires a positive float for money to add" # 400 invalid command
         return message
 
     user['usd_balance'] += float(money_to_add)
     if isinf(user['usd_balance']):
-        message = INVALID + "\nResulting balance too high"
+        message = INVALID + "\nResulting balance too high" # 400 invalid command
         return message
     
     updateUserBalance(user, con, c)
 
     return OK + f"\nDeposit successful. New User Balance ${user['usd_balance']:.2f}"
 
-# LOGIN FUNCTION
-def login(data, host, con, c):
-    active_user = None
-    
-    message = numberOfArgs(data, LOGIN_ARG_LEN)
+# Validate and process WHO command
+def who(data, user, c):
+    message = numberOfArgs(data, WHO_ARG_LEN) # argument check
+
     if message:
-        return active_user, message
+        return message
     
-    #Get command args
-    u_name = data.pop(0)
-    u_pass = data.pop(0)
+    if user['user_name'] != "Root": # only Root can run this command
+        message = INVALID + "\nOnly user Root can execute this command"
+        return message
     
-    # check against user table for correct info
-    res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');")
-    result = res.fetchone()
-    if not result:
-        message = LOGIN_FAIL + "\nUser does not exist or password incorrect"
-        return active_user, message
-    active_user = dict(zip(USER_KEYS, result))
+    message = ''
+    res = c.execute(f"SELECT * FROM User_sessions")
+    result = list(res.fetchall())
+    message += "The list of active users:\n"
+    for value in result:
+        for i in range(len(value)):
+            if i > 1: # get rid of primary key field in User_session table
+                message += f"{value[i].ljust(LONGEST_POKEMON_NAME, ' ')}"
 
-    # check against user_session table
-    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = {active_user['id']};")
-    result = res.fetchone()
-    if result:
-        active_user = None
-        message = LOGIN_FAIL + "\nUser already logged in"
-        return active_user, message
-
-    # user not currently active and valid login info
-    c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');")
-    con.commit()
-    message = OK + f"\nUser {active_user['user_name']} successfully signed in"
-
-    return active_user, message
-
-# BALANCE FUNCTIONS
-########################
+        message += '\n'
+    
+    message = OK + '\n' + message # 200 OK
+    return message
 
 # Process Balance command
 def balanceForOwner(user_id, c):
-    #Get User Information
     user = getUser(user_id, c)
-    if not user:    #Return if no user was found in the database
-        message = NOT_FOUND + f"\nNo user {user_id} exists"                                                   # Error 404, selected user does not exist
+    if not user:
+        message = NOT_FOUND + f"\nNo user {user_id} exists" # 404 no record found
         return message
     
-    #Create and return message
-    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}" # Success w/ appropriate first name, last name, and balance
+    message = OK + f"\nBalance for user {user['first_name']} {user['last_name']}: ${user['usd_balance']:.2f}"
 
     return message
 
 # Validate BALANCE command args
 def balance(data, c):
-    message = numberOfArgs(data, BALANCE_ARG_LEN) #Check if command has correct number of args
-    if message:                                   #Return if too many or too few args
+    message = numberOfArgs(data, BALANCE_ARG_LEN)
+
+    if message:
         return message
     
-    #Get and validate Owner ID Arg
-    id = data.pop(0)                      # Store next argument
-    if not id.isnumeric() or int(id) < 1: # Return if owner id is non-int or non-positive
-        message = FORMAT + "\nBALANCE requires non-zero, positive integer for user"
+    id = data.pop(0)
+    if not id.isnumeric() or int(id) < 1: # if owner id is non-int or non-positive
+        message = FORMAT + "\nBALANCE requires non-zero, positive integer for user" # 405 message format order
         return message
     
-    #Run BALANCE command
-    message = balanceForOwner(id, c)   # Hand off to message builder
+    message = balanceForOwner(id, c)
 
     return message
 
-########################
+# Process LIST command for active user
+def listCardsForOwner(user, c):
+    cards = getCardByOwner(user['id'], c)
+    if not cards:   #Return if user owns no cards or the ID is not in the database
+        message = NOT_FOUND + f"\nNo cards owned by {user['user_name']}, user may not exist" # 
+        return message
+    
+    #Print list of cards
+    message = OK + f"\nThe list of records in the Pokemon cards table for current user, {user['user_name']}:\n"
+    message += printTable(CARD_KEYS, cards)
 
-
-# LIST FUNCTIONS
-########################
+    return message
 
 # Process LIST command for Root user
 def listAllCards(c):
@@ -379,24 +336,10 @@ def listAllCards(c):
 
     return message
 
-# Process LIST command for active user
-def listCardsForOwner(user, c):
-    #Get User's Cards
-    cards = getCardByOwner(user['id'], c)
-
-    if not cards:   #Return if user owns no cards or the ID is not in the database
-        message = NOT_FOUND + f"\nNo cards owned by {user['user_name']}, user may not exist"                         # Error 404, selected user does not exist
-        return message
-    
-    #Print list of cards
-    message = OK + f"\nThe list of records in the Pokemon cards table for current user, {user['user_name']}:\n"
-    message += printTable(CARD_KEYS, cards)
-
-    return message
-
 # Direct LIST command based on user
 def listC(data, user, c):
     message = numberOfArgs(data, LIST_ARG_LEN)
+
     if message:
         return message
     
@@ -408,187 +351,205 @@ def listC(data, user, c):
 
     return message
 
-########################
-
-
-# SELL FUNCTIONS
-########################
-
 # Process SELL command
 def sellCard(c_name, c_quantity, c_price, c_owner, con, c):
-    #Get User and User's Card Information
     user = getUser(c_owner, c)
     card = getCardByOwnerName(c_owner, c_name, c)
 
-    if not user:                        #Return if user id was not in list
-        message = NOT_FOUND + f"\nNo user {c_owner}"
+    if not user:
+        message = NOT_FOUND + f"\nNo user {c_owner}" # 404 no record found
         return message
     
-    if not card:                        #Return if user does not own any of the card
-        message = NOT_FOUND + f"\nNo Pokemon '{c_name}' owned by user {c_owner}"
+    if not card:
+        message = NOT_FOUND + f"\nNo Pokemon '{c_name}' owned by user {c_owner}" # 404 no record found
         return message
     
-    if int(c_quantity) > card['count']: #Return if the quantity is more than the card count in database
-        message = INVALID + "\nSELL quantity more than card count"
+    if int(c_quantity) > card['count']:
+        message = INVALID + "\nSELL quantity more than card count" # 400 invalid command
         return message
 
-    #Adds balance to the user, subtracts card quantity
     user['usd_balance'] += int(c_quantity) * float(c_price)
     if isinf(user['usd_balance']):
-        message = INVALID + "\nResulting balance too high"
+        message = INVALID + "\nResulting balance too high" # 400 invalid command
         return message
+    
     card['count'] -= int(c_quantity)
-
-    if card['count'] == 0: #If card count is zero, remove the card from the database
+    if card['count'] == 0:
         deleteCard(card, c_owner, con, c)
-    else:                  #Else, update the value in the database
+
+    else:
         updateCardCount(card, con, c)
+
     updateUserBalance(user, con, c)
 
     return OK + f"\nSOLD: New balance: {card['count']} {card['card_name']}. User's balance USD ${user['usd_balance']:.2f}"
 
 # Validate SELL command args
 def sell(data, con, c):
-    message = numberOfArgs(data, SELL_ARG_LEN) #Check if command has correct number of args
-    if message:                                #Return if too many or too few args
+    message = numberOfArgs(data, SELL_ARG_LEN)
+
+    if message:
         return message
     
-    #Get command args
-    c_name = data.pop(0)
-    
-    #Get and validate Quantity Arg 
+    c_name = data.pop(0) 
     c_quantity = data.pop(0)
-    if not c_quantity.isnumeric() or int(c_quantity) < 1: #Return if quantity is non-int or non-positive
+    if not c_quantity.isnumeric() or int(c_quantity) < 1:
         message = FORMAT + "\nSELL requires positive, non-zero integer for quantity"
         return message
     
-    #Get and validate Price Arg
     c_price = data.pop(0)
-    if not isFloat(c_price): #Return if price is non-float type
+    if not isFloat(c_price):
         message = FORMAT + "\nSELL requires a float for price"
         return message
-    elif float(c_price) < 0: #Return if price is non-positive
-        message = INVALID + "\nSELL requires a positive float for price"
-        return message
-    elif isinf(float(c_price)):
-        message = INVALID + "\nSELL price is too high"
+    
+    elif float(c_price) < 0:
+        message = INVALID + "\nSELL requires a positive float for price" # 400 invalid command
         return message
     
-    #Get and validate Owner ID Arg
+    elif isinf(float(c_price)):
+        message = INVALID + "\nSELL price is too high" # 400 invalid command
+        return message
+    
     c_owner = data.pop(0)
-    if not c_owner.isnumeric() or int(c_owner) < 1: #Return if owner id is non-int or non-positive
+    if not c_owner.isnumeric() or int(c_owner) < 1:
         message = FORMAT + "\nSELL requires positive, non-zero integer for user"
         return message
     
-    #Run SELL command
     message = sellCard(c_name, c_quantity, c_price, c_owner, con, c)
 
     return message
 
-########################
-
-# BUY FUNCTIONS
-########################
-
 # Proccess BUY command
 def buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c):
-    #Get User and User's Card Information
     user = getUser(c_owner, c)
     card = getCardByOwnerNameRarity(c_name, c_rarity, c_owner, c)
 
-    if not user:                #Return if user id was not in list
-        message = NOT_FOUND + f"\nNo user {c_owner}"
+    if not user:
+        message = NOT_FOUND + f"\nNo user {c_owner}" # 404 no record found
         return message
     
-    #To determine overflow with quantity
     try:
         user['usd_balance'] -= int(c_quantity) * float(c_price)
     except OverflowError:
         message = OVERFLOW + "\nQuantity is too large"
         return message
     
-    if user['usd_balance'] < 0: #Return if selected user does not have enough funds
+    if user['usd_balance'] < 0:
         message = INVALID + f"\nUser {c_owner} does not have enough funds to purchase {c_quantity} {c_name}(s)"
         return message
     
-    if card:                    #If the card is already in the card database, increase count
+    if card:
         card['count'] += int(c_quantity)
         updateCardCount(card, con, c)
-    else:                       #Else, add it to the card database
+    else:
         insertCard(c_name, c_type, c_rarity, c_quantity, c_owner, con, c)
-    updateUserBalance(user, con, c) #Update user database
+    updateUserBalance(user, con, c)
 
     return OK + f"\nBOUGHT: New balance: {c_quantity} {c_name}. User's USD balance ${user['usd_balance']:.2f}"
 
 # Validate BUY command args
 def buy(data, con, c):
-    message = numberOfArgs(data, BUY_ARG_LEN) #Check if command has correct number of args
-    if message:                               #Return if too many or too few args
+    message = numberOfArgs(data, BUY_ARG_LEN)
+
+    if message:
         return message
     
-    #Get command args
     c_name = data.pop(0)
     c_type = data.pop(0)
     c_rarity = data.pop(0)
-    
-    #Get and validate Price Arg
     c_price = data.pop(0)
-    if not isFloat(c_price): #Return if price is non-float type
-        message = FORMAT + "\nBUY requires a float for price"
+    if not isFloat(c_price):
+        message = FORMAT + "\nBUY requires a float for price" # 405 message format order
         return message
-    elif float(c_price) < 0: #Return if price is non-positive
-        message = INVALID + "\nBUY requires a positive float for price"
+    
+    elif float(c_price) < 0:
+        message = INVALID + "\nBUY requires a positive float for price" # 400 invalid command
         return message
+    
     elif isinf(float(c_price)):
-        message = INF + "\nPrice is 'inf'"
+        message = INF + "\nPrice is 'inf'" # 420 price is 'inf'
     
-    #Get and validate Quantity Arg
     c_quantity = data.pop(0)
-    if not c_quantity.isnumeric() or int(c_quantity) < 1: #Return if quantity is non-int or non-positive
-        message = FORMAT + "\nBUY requires positive, non-zero integer for quantity"
+    if not c_quantity.isnumeric() or int(c_quantity) < 1:
+        message = FORMAT + "\nBUY requires positive, non-zero integer for quantity" # 405 message format order
         return message
     
-    #Get and validate Owner ID Arg
     c_owner = data.pop(0)
-    if not c_owner.isnumeric() or int(c_owner) < 1: #Return if owner id is non-int or non-positive
-        message = FORMAT + "\nBUY requires positive, non-zero integer for user"
+    if not c_owner.isnumeric() or int(c_owner) < 1:
+        message = FORMAT + "\nBUY requires positive, non-zero integer for user" # 405 message format order
         return message
     
-    #Run BUY command
     message = buyCard(c_name, c_type, c_rarity, c_price, c_quantity, c_owner, con, c)
 
     return message
 
-########################
+# handle login
+def login(data, host, con, c):
+    active_user = None
+    message = numberOfArgs(data, LOGIN_ARG_LEN)
 
-def tokenizerLoggedIn(data, user, con, c):
-    tokens = data.split() # Split Input Into Strings
-    if not tokens:        # If No Input Given
-        message = INVALID + "\nNo valid command received"
-        return message
-    commandToken = tokens.pop(0)
+    if message:
+        return active_user, message
     
-    # Function Selection
+    u_name = data.pop(0)
+    u_pass = data.pop(0)
+    res = c.execute(f"SELECT * FROM Users WHERE (user_name, password) = ('{u_name}', '{u_pass}');") # get user by user_name and u_pass
+    result = res.fetchone()
+    if not result:
+        message = LOGIN_FAIL + "\nUser does not exist or password incorrect" # 403 Wrong UserID or Password
+        return active_user, message
+    
+    active_user = dict(zip(USER_KEYS, result))
+    res = c.execute(f"SELECT * FROM User_sessions WHERE user_id = {active_user['id']};") # check against user_session table
+    result = res.fetchone()
+    if result:
+        active_user = None
+        message = LOGIN_FAIL + "\nUser already logged in" # 403 Wrong UserID or Password
+        return active_user, message
+
+    c.execute(f"INSERT INTO User_sessions (user_id, user_name, IP_address) VALUES ({active_user['id']}, '{active_user['user_name']}', '{host}');") # user not currently active and valid login info
+    con.commit()
+    message = OK + f"\nUser {active_user['user_name']} successfully signed in"
+
+    return active_user, message
+
+# Command processing start for logged in clients
+def tokenizerLoggedIn(data, user, con, c):
+    tokens = data.split() # split input into strings
+    if not tokens:
+        message = INVALID + "\nNo valid command received" # 400 invalid command
+        return message
+    
+    commandToken = tokens.pop(0)
+
     if commandToken == "BUY":
         return buy(tokens, con, c)
+    
     elif commandToken == "SELL":
         return sell(tokens, con, c)
+    
     elif commandToken == "LIST":
         return listC(tokens, user, c)
+    
     elif commandToken == "BALANCE":
         return balance(tokens, c)
+    
     elif commandToken == "WHO":
         return who(tokens, user, c)
+    
     elif commandToken == "DEPOSIT":
         return deposit(tokens, user, con, c)
+    
     elif commandToken == "LOOKUP":
         return lookup(tokens, user, c)
-    return INVALID + "\nNo valid command received"
+    
+    return INVALID + "\nNo valid command received" # 400 invalid command
 
+# Command processing start for non-logged in clients
 def tokenizer(data, client, con, c):
-    tokens = data.split() # Split Input Into Strings
-    if not tokens:        # If No Input Given
-        message = INVALID + "\nNo valid command received"
+    tokens = data.split() # split input into strings
+    if not tokens:
+        message = INVALID + "\nNo valid command received" # 400 invalid command
         return message
     commandToken = tokens.pop(0)
     
@@ -596,67 +557,70 @@ def tokenizer(data, client, con, c):
     if commandToken == 'LOGIN':
         return login(tokens, client, con, c)
     
-    return INVALID + "\nNo valid command received"
+    return INVALID + "\nNo valid command received" # 400 invalid command
 
 def client_handler(connection, address, tID):
     global ServerRunning
+
+    active_user = None
+    con = sqlite3.connect('database.db') # Open/create and connect to database, for each thread
+    c = con.cursor()                     # Create a cursor
+
     while True:
-        active_user = None
-        con = sqlite3.connect('database.db') # Open/create and connect to database
-        c = con.cursor()                     # Create a cursor
-        #:p
-        #connection.sendall(bytes("Connected to Server!", encoding="ASCII"))
-        while True:
-            data = connection.recv(1024).decode()
-            print(f"C{tID}: {data}")
+        data = connection.recv(1024).decode()
+        print(f"C{tID}: {data}\n")
 
-            if data == 'QUIT':
-                c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};")
-                con.commit()
-                break
-
-            elif data == 'LOGOUT':
-                c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};")
-                con.commit()
-                active_user = None
-                connection.sendall(bytes("Logging out", encoding="ASCII"))
-                continue
-
-            elif data == 'SHUTDOWN':
-                if active_user and active_user['user_name'] == 'Root': 
-                    connection.sendall(bytes("Shutting Down Server... OwO", encoding="ASCII"))
-                    ServerRunning = False
-                    break
-
-                else:    
-                    connection.sendall(bytes("Not Root User", encoding="ASCII"))
-
-            if not active_user:
-                message = tokenizer(data, address, con, c)
-                if type(message) != str:
-                    active_user = message[0]
-                    message = message[1]
-            else:
-                message = tokenizerLoggedIn(data, active_user, con, c)
-
-            print(f"S: {message}")
-            connection.sendall(bytes(message, encoding="ASCII"))
-            #print_lock.release()
-        if data == "QUIT":
+        if data == 'QUIT' and active_user: # QUIT command w/ login
+            c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};") # delete user session
+            con.commit()
+            active_user = None
+            connection.sendall(bytes("Quitting", encoding="ASCII"))
             break
 
-    message = f"CLOSE"
-    connection.sendall(bytes(message, encoding="ASCII"))
+        elif data == 'QUIT' and not active_user: # QUIT command w/o login
+            connection.sendall(bytes("Quitting", encoding="ASCII"))
+            break
+
+        elif data == 'LOGOUT' and active_user: # LOGOUT command
+            c.execute(f"DELETE FROM User_sessions WHERE user_id = {active_user['id']};") # delete user session
+            con.commit()
+            active_user = None
+            connection.sendall(bytes("Logging out", encoding="ASCII"))
+            continue
+
+        elif data == 'SHUTDOWN' and active_user and active_user['user_name'] == 'Root': # SHUTDOWN command
+            connection.sendall(bytes("Shutting Down Server...", encoding="ASCII"))
+            pid = os.getpid() # get pid of server
+            os.kill(pid, signal.SIGTERM) # kill with terminate signal
+
+        elif data == 'SHUTDOWN' and active_user and active_user['user_name'] != 'Root': # SHUTDOWN command error, not Root
+            connection.sendall(bytes(ACCESS + "\nNot Root User", encoding="ASCII"))
+            continue
+
+        elif data == 'SHUTDOWN' and not active_user: # SHUTDOWN command error, no user
+            connection.sendall(bytes(ACCESS + "\nNot Root User", encoding="ASCII"))
+            continue
+
+        elif not active_user: # if no active user, only valid command at this point is LOGIN
+            message = tokenizer(data, address, con, c)
+            if type(message) != str: # message is a tuple, expected with a valid login; otherwise pass along error
+                active_user = message[0]
+                message = message[1]
+        else:
+            message = tokenizerLoggedIn(data, active_user, con, c)
+
+        print(f"S: {message}\n")
+        connection.sendall(bytes(message, encoding="ASCII"))
+
     connection.close()
     ThreadIDs[tID] = False
+    
 
 def accept_connections(server):
-    #print_lock.acquire()
     client, address = server.accept()
     print(f"Connected to: {address}")
     start_new_thread(client_handler, (client, address[0], find_open_thread()))
     ThreadIDs[find_open_thread()] = True
-    #print_lock.release()
 
 def find_open_thread():
     for i in range(MaxThreads):
@@ -683,150 +647,42 @@ def start_server(HOST, PORT):
     while ServerRunning:
         if find_open_thread() != None:
             accept_connections(server)
+    exit()
 
 def main():
+    print(str(sys.argv))
     if len(sys.argv) == 2:
         HOST = sys.argv[1]
     else:
         HOST = "127.0.0.1"
 
-    con = sqlite3.connect('database.db') # Open/create and connect to database
-    c = con.cursor()                     # Create a cursor
-
-    c.execute(f"DELETE FROM Pokemon_cards;")
-    con.commit()    
-    createTables(con, c)                 # Create Tables
-
-    if isUserTableEmpty(c):
-        insertDefaultUser(con, c)
-
     # Ctrl-C handler for graceful interrupt exit
     def keyboardInterruptHandler(signum, frame):
         res = input("\nCtrl-c was pressed. Do you really want to exit? y/n ")
         if res.lower() == 'y':
-            exit(1)
+            exit()
 
     # Keyboard Interrupt Handler for graceful exit with Ctrl-C
     signal.signal(signal.SIGINT, keyboardInterruptHandler)
 
-    c.execute(f"DELETE FROM User_sessions;")
+    con = sqlite3.connect('database.db') # Open/create and connect to database, for original queries on server startup
+    c = con.cursor()                     # Create a cursor
+
+    createTables(con, c)                 # Create Tables
+    if isUserTableEmpty(c):
+        insertDefaultUser(con, c)
+
+    c.execute(f"DELETE FROM User_sessions;") # always start with a fresh User_sessions table
     con.commit()
     start_server(HOST, PORT)
 
 if __name__ == "__main__":
     main()
 
-""" 
-# Client wishes to shutdown server
-elif data == "SHUTDOWN":                       
-    conn.sendall(bytes(OK, encoding="ASCII"))
-    print('SERVER SHUTDOWN INITIATED BY USER...')
-    break 
-    
-if data == "SHUTDOWN":                                # Only triggered via SHUTDOWN command, otherwise loop for new connections                            
-    break
-"""
-
-#GIL may pose a problem later
-
 #LIST done
 #LOGIN done
 #LOOKUP done
 #WHO done
 #DEPOSIT done
-#LOGOUT
-#SHUTDOWN
-
-"""
-# TEST IN MAIN
-########################
-
-# get active user for threaded session
-res = c.execute(f"SELECT * FROM Users;")
-result = res.fetchall()
-print(printTable(USER_KEYS, result))
-
-# process non-threaded commands
-input = "LOGIN Root Root01"
-print(input)
-message = tokenizerNotThreaded(input, host, con, c) # in non-threaded loop
-print(message + '\n')
-
-res = c.execute("SELECT * FROM User_sessions;")
-result = res.fetchall()
-print(printTable(USER_SESSION_KEYS, result))
-
-print("Active User: " + str(ACTIVE_USERID) + '\n')
-
-# get active user for threaded session
-res = c.execute(f"SELECT * FROM Users WHERE (id) = {ACTIVE_USERID};")
-result = res.fetchone()
-active_user = dict(zip(USER_KEYS, result))
-
-# process threaded commands
-input = "LOOKUP klhjadfgjhqawnfsdg"
-print(input)
-message = tokenizerThreaded(input, active_user, con, c) # in threaded loop once threads implemented
-print(message + '\n')
-
-res = c.execute(f"SELECT * FROM Users;")
-result = res.fetchall()
-print(printTable(USER_KEYS, result))
-printTable(USER_KEYS, result)
-
-return
-########################
-"""
-
-"""
-    while True:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind((host, PORT))
-            s.listen()
-            conn, addr = s.accept()
-
-            with conn:
-                print(f"Connected by {addr}")
-                while True:
-                    data = conn.recv(1024).decode()                   # Data received from client
-                    print(f"Received: {data}\n")
-
-                    # Client wishes to log off
-                    if data == "QUIT":
-                        conn.sendall(bytes(OK, encoding="ASCII"))
-                        break
-                    # No data received, client is not connected, wait for new client
-                    elif not data:
-                        break
-                    
-                    message = tokenizerNotThreaded(data, host, threads, conn, con, c)                 # Process message received if not "SHUTDOWN" or "QUIT"
-
-                    conn.sendall(bytes(message, encoding="ASCII"))
-"""
-
-"""
-def threaded(conn, message, active_user):
-    con = sqlite3.connect('database.db') # Open/create and connect to database
-    c = con.cursor()                     # Create a cursor
-    
-    conn.sendall(bytes(message, encoding="ASCII")) # Return successful login
-    while True:
-        data = conn.recv(1024).decode() # Data received from client
-        print(f"Received: {data}\n")
-
-        # Client wishes to log off
-        if data == "LOGOUT":
-            conn.sendall(bytes(OK, encoding="ASCII"))
-            break
-        # No data received, client is not connected, wait for new client
-        elif active_user['user_name'] == 'Root' and data == "SHUTDOWN":
-            pass
-        elif not data:
-            break
-        
-        message = tokenizerLogin(data, active_user, con, c)
-
-        conn.sendall(bytes(message, encoding="ASCII"))
-    return
-"""
+#LOGOUT done
+#SHUTDOWN ???
