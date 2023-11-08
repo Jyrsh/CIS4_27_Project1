@@ -21,7 +21,7 @@ def main():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((HOST, PORT))
-        while message !=  "QUIT" and (message != "SHUTDOWN" and data != '200 OK\nShutting Down Server...'):
+        while message !=  "QUIT" and data != OK + '\nShutting Down Server...':
             message = input("c: ")
             if message.isspace() or len(message) == 0:
                 print(f"{INVALID}\nNo valid command received\n")
