@@ -650,7 +650,6 @@ def start_server(HOST, PORT):
     exit()
 
 def main():
-    print(str(sys.argv))
     if len(sys.argv) == 2:
         HOST = sys.argv[1]
     else:

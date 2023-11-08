@@ -12,7 +12,6 @@ INVALID = "400 invalid command"
 ########################
 
 def main():
-    print(str(sys.argv))
     if len(sys.argv) == 2:
         HOST = sys.argv[0]
     else:
